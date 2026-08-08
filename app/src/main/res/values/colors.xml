@@ -1,0 +1,17 @@
+<resources>
+    <color name="ck_background_light">#FFFFFFFF</color>
+    <color name="ck_background_dark">#FF121212</color>
+    <color name="ck_background_neon">#FF0D0221</color>
+
+    <color name="ck_key_light">#FFE8E8E8</color>
+    <color name="ck_key_dark">#FF2A2A2A</color>
+    <color name="ck_key_neon">#FF1B0B3B</color>
+
+    <color name="ck_key_text_light">#FF1B1B1B</color>
+    <color name="ck_key_text_dark">#FFECECEC</color>
+    <color name="ck_key_text_neon">#FF39FF14</color>
+
+    <color name="ck_accent_light">#FF6750A4</color>
+    <color name="ck_accent_dark">#FFBB86FC</color>
+    <color name="ck_accent_neon">#FFFF00E5</color>
+</resources>
