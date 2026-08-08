@@ -128,7 +128,12 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
             )
         }
-        numberKeys.forEach { c -> row.addView(makeCharKey(c.toString(), isLetter = false)) }
+        numberKeys.forEach { c ->
+            row.addView(
+                makeCharKey(c.toString(), isLetter = false),
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            )
+        }
         addView(row)
     }
 
@@ -141,7 +146,12 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             )
             setPadding(dp(sidePadding), 0, dp(sidePadding), 0)
         }
-        keys.forEach { c -> row.addView(makeCharKey(c.toString(), isLetter = true)) }
+        keys.forEach { c ->
+            row.addView(
+                makeCharKey(c.toString(), isLetter = true),
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            )
+        }
         addView(row)
     }
 
@@ -156,16 +166,25 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             text = "shift"
             textSize = 12f
             isAllCaps = false
+            minimumWidth = 0
+            minimumHeight = 0
             setOnClickListener {
                 setShiftState(!shiftEnabled)
                 listener?.onShiftToggle()
             }
         }
         row.addView(shiftButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f))
-        row3Keys.forEach { c -> row.addView(makeCharKey(c.toString(), isLetter = true)) }
+        row3Keys.forEach { c ->
+            row.addView(
+                makeCharKey(c.toString(), isLetter = true),
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            )
+        }
         val backspaceButton = Button(context).apply {
             text = "\u232B"
             textSize = 16f
+            minimumWidth = 0
+            minimumHeight = 0
             setOnClickListener { listener?.onBackspace() }
         }
         row.addView(backspaceButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f))
@@ -187,6 +206,8 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             text = "space"
             textSize = 12f
             isAllCaps = false
+            minimumWidth = 0
+            minimumHeight = 0
             setOnClickListener { listener?.onSpace() }
         }
         row.addView(spaceButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 3f))
@@ -196,6 +217,8 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         val enterButton = Button(context).apply {
             text = "\u23CE"
             textSize = 16f
+            minimumWidth = 0
+            minimumHeight = 0
             setOnClickListener { listener?.onEnter() }
         }
         row.addView(enterButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f))
@@ -207,6 +230,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             text = label
             textSize = 14f
             isAllCaps = false
+            minimumWidth = 0
+            minimumHeight = 0
+            setPadding(dp(2), 0, dp(2), 0)
             setOnClickListener {
                 val txt = (it as Button).text.toString()
                 listener?.onCharKey(if (txt.isNotEmpty()) txt[0] else ' ')
