@@ -65,7 +65,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // DataStore for settings persistence
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
 
     // Coroutines (DataStore + settings flows)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
