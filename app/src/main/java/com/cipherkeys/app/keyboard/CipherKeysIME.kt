@@ -19,6 +19,8 @@ import com.cipherkeys.app.encoder.EliteEncoder
 import com.cipherkeys.app.encoder.HackerEncoder
 import com.cipherkeys.app.encoder.UltraEncoder
 import com.cipherkeys.app.data.SettingsRepository
+import com.cipherkeys.app.dictionary.Dictionary
+import com.cipherkeys.app.dictionary.EnglishLexicon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,10 +55,20 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     private lateinit var hackerEncoder: Encoder
     private lateinit var ultraEncoder: Encoder
     private lateinit var decoder: CipherKeysDecoder
+    private lateinit var dictionary: Dictionary
+
+    // Tracks the word currently being typed, in plain (unencoded) letters, plus how
+    // many field-characters each of those raw letters turned into once encoded (a
+    // single raw letter can become several committed characters - e.g. HACKER mode's
+    // "h" -> "|-|"). This lets suggestions/corrections operate on real English while
+    // still being able to correctly delete/replace exactly what was committed.
+    private val rawWordBuffer = StringBuilder()
+    private val encodedLengthsPerChar = mutableListOf<Int>()
 
     override fun onCreate() {
         super.onCreate()
         settingsRepository = SettingsRepository(applicationContext)
+        dictionary = EnglishLexicon(applicationContext)
         rebuildEncoders(emptyMap())
         serviceScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
@@ -92,6 +104,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         shiftEnabled = false
         keyboardView.setMode(currentMode)
         keyboardView.setShiftState(false)
+        finalizeWord()
 
         // Auto-decode: if enabled, decode whatever text already sits in the field
         // as soon as the keyboard attaches to it.
@@ -121,6 +134,15 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         ic.commitText(output, 1)
         performFeedback()
 
+        if (effectiveChar.isLetter()) {
+            rawWordBuffer.append(effectiveChar)
+            encodedLengthsPerChar.add(output.length)
+            updateSuggestions()
+        } else {
+            // Punctuation typed via a char key (,.!?) ends the current word.
+            finalizeWord()
+        }
+
         if (shiftEnabled) {
             shiftEnabled = false
             keyboardView.setShiftState(false)
@@ -128,8 +150,10 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     }
 
     override fun onSpace() {
+        maybeAutocorrectBeforeBoundary()
         currentInputConnection?.commitText(" ", 1)
         performFeedback()
+        finalizeWord()
     }
 
     override fun onBackspace() {
@@ -137,6 +161,15 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
             ic.commitText("", 1)
+        } else if (rawWordBuffer.isNotEmpty()) {
+            // Remove the whole encoded token for the last raw letter (which may be
+            // several field-characters in HACKER/ULTRA mode), not just one character,
+            // so raw/encoded stay in sync and backspace doesn't need repeated taps to
+            // undo a single logical letter.
+            val lastEncodedLength = encodedLengthsPerChar.removeAt(encodedLengthsPerChar.lastIndex)
+            rawWordBuffer.deleteCharAt(rawWordBuffer.lastIndex)
+            ic.deleteSurroundingText(lastEncodedLength, 0)
+            updateSuggestions()
         } else {
             ic.deleteSurroundingText(1, 0)
         }
@@ -145,6 +178,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
     override fun onEnter() {
         val ic = currentInputConnection ?: return
+        maybeAutocorrectBeforeBoundary()
         val editorInfo = currentInputEditorInfo
         val action = editorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)
         if (action != null && action != EditorInfo.IME_ACTION_NONE &&
@@ -156,6 +190,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             ic.commitText("\n", 1)
         }
         performFeedback()
+        finalizeWord()
     }
 
     override fun onShiftToggle() {
@@ -164,9 +199,71 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
     override fun onModeSelected(mode: KeyboardMode) {
         currentMode = mode
+        finalizeWord()
         if (mode == KeyboardMode.DECODE) {
             decodeExistingFieldText()
         }
+    }
+
+    override fun onSuggestionSelected(word: String) {
+        val ic = currentInputConnection ?: return
+        replaceCurrentWord(ic, word)
+        ic.commitText(" ", 1)
+        finalizeWord()
+        performFeedback()
+    }
+
+    // ---------- Word-boundary / suggestion helpers ----------
+
+    private fun updateSuggestions() {
+        if (!::keyboardView.isInitialized) return
+        val prefix = rawWordBuffer.toString()
+        val suggestions = if (prefix.isEmpty()) emptyList() else dictionary.suggestCompletions(prefix)
+        keyboardView.setSuggestions(suggestions)
+    }
+
+    /** Clears word-tracking state at a boundary (space, punctuation, enter, mode switch). */
+    private fun finalizeWord() {
+        rawWordBuffer.clear()
+        encodedLengthsPerChar.clear()
+        if (::keyboardView.isInitialized) keyboardView.setSuggestions(emptyList())
+    }
+
+    /**
+     * If autocorrect is enabled and the just-typed word looks like a typo with a single
+     * confident fix, silently swaps it in before the word boundary (space/enter) is
+     * committed. Only fires in NORMAL/DECODE - correcting the *encoded* text in cipher
+     * modes would mean spell-checking symbols, not English, which isn't meaningful.
+     */
+    private fun maybeAutocorrectBeforeBoundary() {
+        if (!currentSettings.autocorrectEnabled) return
+        if (currentMode != KeyboardMode.NORMAL && currentMode != KeyboardMode.DECODE) return
+        val word = rawWordBuffer.toString()
+        if (word.length < 3 || dictionary.isValidWord(word)) return
+        val correction = dictionary.suggestCorrections(word, limit = 1).firstOrNull() ?: return
+        val ic = currentInputConnection ?: return
+        replaceCurrentWord(ic, correction)
+    }
+
+    /** Deletes exactly what's been committed for the current word and inserts [word]. */
+    private fun replaceCurrentWord(ic: android.view.inputmethod.InputConnection, word: String) {
+        val committedLength = encodedLengthsPerChar.sum()
+        if (committedLength > 0) ic.deleteSurroundingText(committedLength, 0)
+
+        val toInsert = if (currentSettings.autoEncodeEnabled) {
+            when (currentMode) {
+                KeyboardMode.NORMAL, KeyboardMode.DECODE -> word
+                KeyboardMode.CLASSIC_LEET -> classicEncoder.encode(word)
+                KeyboardMode.ELITE -> eliteEncoder.encode(word)
+                KeyboardMode.HACKER -> hackerEncoder.encode(word)
+                KeyboardMode.ULTRA -> ultraEncoder.encode(word)
+            }
+        } else {
+            word
+        }
+        ic.commitText(toInsert, 1)
+        rawWordBuffer.clear()
+        encodedLengthsPerChar.clear()
     }
 
     // ---------- Helpers ----------
