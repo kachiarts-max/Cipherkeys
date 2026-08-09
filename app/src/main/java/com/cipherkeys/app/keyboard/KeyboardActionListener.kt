@@ -10,4 +10,6 @@ interface KeyboardActionListener {
     fun onEnter()
     fun onShiftToggle()
     fun onModeSelected(mode: KeyboardMode)
-    fun onsuggestionSelected(word:string)
+    /** Fired when the user taps a word in the suggestion strip. */
+    fun onSuggestionSelected(word: String)
+}
