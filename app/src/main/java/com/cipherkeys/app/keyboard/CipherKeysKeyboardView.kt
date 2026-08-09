@@ -36,6 +36,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     private val modeButtons = mutableMapOf<KeyboardMode, Button>()
     private lateinit var modeLabel: TextView
     private lateinit var shiftButton: Button
+    private val suggestionChips = mutableListOf<TextView>()
 
     private val row1Keys = "qwertyuiop"
     private val row2Keys = "asdfghjkl"
@@ -47,6 +48,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         setPadding(dp(4), dp(4), dp(4), dp(4))
         buildToolbarRow()
         buildStatusRow()
+        buildSuggestionStrip()
         buildNumberRow()
         buildRow(row1Keys, sidePadding = 0)
         buildRow(row2Keys, sidePadding = 20)
@@ -79,6 +81,21 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         currentTheme = theme
         this.heightScale = heightScale
         applyTheme()
+    }
+
+    /**
+     * Updates the 3 suggestion chips above the keyboard. Pass an empty list to hide
+     * suggestions (chips still occupy their row, just render blank/non-clickable) -
+     * this keeps the overall keyboard height stable rather than jumping around as the
+     * user types, which would be jarring.
+     */
+    fun setSuggestions(words: List<String>) {
+        suggestionChips.forEachIndexed { index, chip ->
+            val word = words.getOrNull(index)
+            chip.text = word.orEmpty()
+            chip.isEnabled = word != null
+            chip.alpha = if (word != null) 1.0f else 0.0f
+        }
     }
 
     // ---------- Row builders ----------
@@ -119,6 +136,27 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             setPadding(dp(8), dp(2), dp(8), dp(4))
         }
         addView(modeLabel)
+    }
+
+    private fun buildSuggestionStrip() {
+        val row = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(32))
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        repeat(3) {
+            val chip = TextView(context).apply {
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setOnClickListener {
+                    val word = text.toString()
+                    if (word.isNotEmpty()) listener?.onSuggestionSelected(word)
+                }
+            }
+            suggestionChips.add(chip)
+            row.addView(chip, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        }
+        addView(row)
     }
 
     private fun buildNumberRow() {
@@ -252,6 +290,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         }
         setBackgroundColor(bg)
         modeLabel.setTextColor(keyText)
+        suggestionChips.forEach { chip -> chip.setTextColor(accent) }
         val allButtons = mutableListOf<Button>()
         allButtons.addAll(letterButtons)
         allButtons.addAll(modeButtons.values)
@@ -260,7 +299,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         modeButtons[currentMode]?.setTextColor(accent)
 
         val scale = heightScale.coerceIn(0.8f, 1.3f)
-        val baseHeightDp = 190
+        // Base includes the 32dp suggestion strip added above the key rows; the
+        // weighted rows themselves keep the same proportions as before.
+        val baseHeightDp = 222
         layoutParams = (layoutParams ?: LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(baseHeightDp)
         )).apply {
