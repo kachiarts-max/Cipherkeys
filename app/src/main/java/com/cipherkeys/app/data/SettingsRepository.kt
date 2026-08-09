@@ -18,6 +18,7 @@ data class KeyboardSettings(
     val defaultMode: KeyboardMode = KeyboardMode.default(),
     val autoEncodeEnabled: Boolean = true,
     val autoDecodeEnabled: Boolean = false,
+    val autocorrectEnabled: Boolean = false,
     val vibrationEnabled: Boolean = true,
     val keySoundEnabled: Boolean = false,
     val keyboardHeightScale: Float = 1.0f, // 0.8 - 1.3
@@ -35,6 +36,7 @@ class SettingsRepository(private val context: Context) {
         val DEFAULT_MODE = stringPreferencesKey("default_mode")
         val AUTO_ENCODE = booleanPreferencesKey("auto_encode")
         val AUTO_DECODE = booleanPreferencesKey("auto_decode")
+        val AUTOCORRECT = booleanPreferencesKey("autocorrect")
         val VIBRATION = booleanPreferencesKey("vibration")
         val KEY_SOUND = booleanPreferencesKey("key_sound")
         val HEIGHT_SCALE = floatPreferencesKey("height_scale")
@@ -49,6 +51,7 @@ class SettingsRepository(private val context: Context) {
                 ?: KeyboardMode.default(),
             autoEncodeEnabled = prefs[Keys.AUTO_ENCODE] ?: true,
             autoDecodeEnabled = prefs[Keys.AUTO_DECODE] ?: false,
+            autocorrectEnabled = prefs[Keys.AUTOCORRECT] ?: false,
             vibrationEnabled = prefs[Keys.VIBRATION] ?: true,
             keySoundEnabled = prefs[Keys.KEY_SOUND] ?: false,
             keyboardHeightScale = prefs[Keys.HEIGHT_SCALE] ?: 1.0f,
@@ -69,6 +72,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAutoDecode(enabled: Boolean) {
         context.dataStore.edit { it[Keys.AUTO_DECODE] = enabled }
+    }
+
+    suspend fun setAutocorrect(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.AUTOCORRECT] = enabled }
     }
 
     suspend fun setVibration(enabled: Boolean) {
