@@ -10,4 +10,4 @@ interface KeyboardActionListener {
     fun onEnter()
     fun onShiftToggle()
     fun onModeSelected(mode: KeyboardMode)
-}
+    fun onsuggestionSelected(word:string)
