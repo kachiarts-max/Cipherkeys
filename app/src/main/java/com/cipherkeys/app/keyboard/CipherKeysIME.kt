@@ -21,6 +21,7 @@ import com.cipherkeys.app.encoder.UltraEncoder
 import com.cipherkeys.app.data.SettingsRepository
 import com.cipherkeys.app.dictionary.Dictionary
 import com.cipherkeys.app.dictionary.EnglishLexicon
+import com.cipherkeys.app.emoji.RecentEmojiStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,6 +57,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     private lateinit var ultraEncoder: Encoder
     private lateinit var decoder: CipherKeysDecoder
     private lateinit var dictionary: Dictionary
+    private lateinit var recentEmojiStore: RecentEmojiStore
 
     // Tracks the word currently being typed, in plain (unencoded) letters, plus how
     // many field-characters each of those raw letters turned into once encoded (a
@@ -69,6 +71,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         super.onCreate()
         settingsRepository = SettingsRepository(applicationContext)
         dictionary = EnglishLexicon(applicationContext)
+        recentEmojiStore = RecentEmojiStore(applicationContext)
         rebuildEncoders(emptyMap())
         serviceScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
@@ -78,6 +81,11 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                 if (::keyboardView.isInitialized) {
                     keyboardView.applyThemeAndHeight(settings.theme, settings.keyboardHeightScale)
                 }
+            }
+        }
+        serviceScope.launch {
+            recentEmojiStore.recentsFlow.collect { recents ->
+                if (::keyboardView.isInitialized) keyboardView.setRecentEmoji(recents)
             }
         }
     }
@@ -211,6 +219,20 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         ic.commitText(" ", 1)
         finalizeWord()
         performFeedback()
+    }
+
+    /**
+     * Emoji insertion deliberately bypasses the LEET/ELITE/HACKER/ULTRA encoders -
+     * cipher-encoding an emoji has no meaning, so it's committed as-is regardless of
+     * the active mode. Ends any in-progress word (an emoji is a word boundary) and
+     * records it as a recent for next time the panel opens.
+     */
+    override fun onEmojiSelected(emoji: String) {
+        val ic = currentInputConnection ?: return
+        finalizeWord()
+        ic.commitText(emoji, 1)
+        performFeedback()
+        serviceScope.launch { recentEmojiStore.addRecent(emoji) }
     }
 
     // ---------- Word-boundary / suggestion helpers ----------
