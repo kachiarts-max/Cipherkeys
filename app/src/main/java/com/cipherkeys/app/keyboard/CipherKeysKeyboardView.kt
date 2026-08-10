@@ -448,11 +448,10 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     // ---------- Theming ----------
 
     private fun applyTheme() {
-        val (bg, keyBg, keyText, accent) = when (currentTheme) {
-            KeyboardTheme.DARK -> listOf(Color.parseColor("#121212"), Color.parseColor("#2A2A2A"), Color.parseColor("#ECECEC"), Color.parseColor("#BB86FC"))
-            KeyboardTheme.LIGHT -> listOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E8E8E8"), Color.parseColor("#1B1B1B"), Color.parseColor("#6750A4"))
-            KeyboardTheme.NEON -> listOf(Color.parseColor("#0D0221"), Color.parseColor("#1B0B3B"), Color.parseColor("#39FF14"), Color.parseColor("#FF00E5"))
-        }
+        val bg = currentTheme.background
+        val keyBg = currentTheme.keyBackground
+        val keyText = currentTheme.keyText
+        val accent = currentTheme.accent
         currentKeyTextColor = keyText
         setBackgroundColor(bg)
         modeLabel.setTextColor(keyText)
