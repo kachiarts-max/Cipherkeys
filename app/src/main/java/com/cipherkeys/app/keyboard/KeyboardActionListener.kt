@@ -12,4 +12,6 @@ interface KeyboardActionListener {
     fun onModeSelected(mode: KeyboardMode)
     /** Fired when the user taps a word in the suggestion strip. */
     fun onSuggestionSelected(word: String)
+    /** Fired when the user taps an emoji in the emoji panel. */
+    fun onEmojiSelected(emoji: String)
 }
