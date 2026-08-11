@@ -11,6 +11,7 @@ import com.cipherkeys.app.data.KeyboardMode
 import com.cipherkeys.app.data.KeyboardSettings
 import com.cipherkeys.app.data.KeyboardTheme
 import com.cipherkeys.app.data.SettingsRepository
+import com.cipherkeys.app.data.ThemeColorSet
 import com.cipherkeys.app.ui.CipherKeysTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,7 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
     fun setDefaultMode(mode: KeyboardMode) = viewModelScope.launch { repository.setDefaultMode(mode) }
     fun setAutoEncode(enabled: Boolean) = viewModelScope.launch { repository.setAutoEncode(enabled) }
     fun setAutoDecode(enabled: Boolean) = viewModelScope.launch { repository.setAutoDecode(enabled) }
+    fun setAutocorrect(enabled: Boolean) = viewModelScope.launch { repository.setAutocorrect(enabled) }
     fun setVibration(enabled: Boolean) = viewModelScope.launch { repository.setVibration(enabled) }
     fun setKeySound(enabled: Boolean) = viewModelScope.launch { repository.setKeySound(enabled) }
     fun setHeightScale(scale: Float) = viewModelScope.launch { repository.setKeyboardHeightScale(scale) }
@@ -43,6 +45,8 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
         if (tokens.isEmpty()) updated.remove(letter) else updated[letter] = tokens
         repository.setCustomMappings(updated)
     }
+
+    fun setCustomColors(colors: ThemeColorSet) = viewModelScope.launch { repository.setCustomColors(colors) }
 
     class Factory(private val repository: SettingsRepository) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
