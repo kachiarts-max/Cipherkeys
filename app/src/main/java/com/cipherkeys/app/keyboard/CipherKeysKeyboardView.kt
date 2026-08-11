@@ -1,4 +1,3 @@
-        val chip = TextView(context
 package com.cipherkeys.app.keyboard
 
 import android.content.Context
