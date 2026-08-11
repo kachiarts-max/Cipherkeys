@@ -79,7 +79,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                 currentSettings = settings
                 if (mappingsChanged) rebuildEncoders(settings.customMappings)
                 if (::keyboardView.isInitialized) {
-                    keyboardView.applyThemeAndHeight(settings.theme, settings.keyboardHeightScale)
+                    keyboardView.applyThemeAndHeight(settings.theme, settings.keyboardHeightScale, settings.customColors)
                 }
             }
         }
@@ -102,7 +102,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         val view = CipherKeysKeyboardView(this)
         view.listener = this
         keyboardView = view
-        keyboardView.applyThemeAndHeight(currentSettings.theme, currentSettings.keyboardHeightScale)
+        keyboardView.applyThemeAndHeight(currentSettings.theme, currentSettings.keyboardHeightScale, currentSettings.customColors)
         return view
     }
 
