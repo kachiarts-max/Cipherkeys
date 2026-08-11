@@ -1,196 +1,72 @@
 package com.cipherkeys.app.settings
 
-import android.content.Intent
-import android.provider.Settings
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import com.cipherkeys.app.data.KeyboardMode
+import com.cipherkeys.app.data.KeyboardSettings
 import com.cipherkeys.app.data.KeyboardTheme
+import com.cipherkeys.app.data.SettingsRepository
+import com.cipherkeys.app.data.ThemeColorSet
+import com.cipherkeys.app.ui.CipherKeysTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SettingsScreen(viewModel: SettingsViewModel) {
-    val settings by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
+/** ViewModel bridging the Compose UI to [SettingsRepository]'s suspend/Flow API. */
+class SettingsViewModel(private val repository: SettingsRepository) : ViewModel() {
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("CipherKeys Settings") }) }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            item {
-                Button(onClick = {
-                    context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-                }) {
-                    Text("Enable CipherKeys keyboard")
-                }
-            }
+    private val _uiState = MutableStateFlow(KeyboardSettings())
+    val uiState: StateFlow<KeyboardSettings> = _uiState.asStateFlow()
 
-            item {
-                SectionTitle("Default mode")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    KeyboardMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = settings.defaultMode == mode,
-                            onClick = { viewModel.setDefaultMode(mode) },
-                            label = { Text(mode.label) }
-                        )
-                    }
-                }
-            }
+    init {
+        viewModelScope.launch {
+            repository.settingsFlow.collect { _uiState.value = it }
+        }
+    }
 
-            item {
-                ToggleRow(
-                    label = "Auto encode",
-                    checked = settings.autoEncodeEnabled,
-                    onCheckedChange = viewModel::setAutoEncode
-                )
-            }
-            item {
-                ToggleRow(
-                    label = "Auto decode on focus",
-                    checked = settings.autoDecodeEnabled,
-                    onCheckedChange = viewModel::setAutoDecode
-                )
-            }
-            item {
-                ToggleRow(
-                    label = "Vibration",
-                    checked = settings.vibrationEnabled,
-                    onCheckedChange = viewModel::setVibration
-                )
-            }
-            item {
-                ToggleRow(
-                    label = "Key sound",
-                    checked = settings.keySoundEnabled,
-                    onCheckedChange = viewModel::setKeySound
-                )
-            }
+    fun setDefaultMode(mode: KeyboardMode) = viewModelScope.launch { repository.setDefaultMode(mode) }
+    fun setAutoEncode(enabled: Boolean) = viewModelScope.launch { repository.setAutoEncode(enabled) }
+    fun setAutoDecode(enabled: Boolean) = viewModelScope.launch { repository.setAutoDecode(enabled) }
+    fun setAutocorrect(enabled: Boolean) = viewModelScope.launch { repository.setAutocorrect(enabled) }
+    fun setVibration(enabled: Boolean) = viewModelScope.launch { repository.setVibration(enabled) }
+    fun setKeySound(enabled: Boolean) = viewModelScope.launch { repository.setKeySound(enabled) }
+    fun setHeightScale(scale: Float) = viewModelScope.launch { repository.setKeyboardHeightScale(scale) }
+    fun setTheme(theme: KeyboardTheme) = viewModelScope.launch { repository.setTheme(theme) }
 
-            item {
-                SectionTitle("Keyboard height")
-                Slider(
-                    value = settings.keyboardHeightScale,
-                    onValueChange = { viewModel.setHeightScale(it) },
-                    valueRange = 0.8f..1.3f
-                )
-            }
+    fun setCustomMapping(letter: Char, tokensCsv: String) = viewModelScope.launch {
+        val tokens = tokensCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val updated = _uiState.value.customMappings.toMutableMap()
+        if (tokens.isEmpty()) updated.remove(letter) else updated[letter] = tokens
+        repository.setCustomMappings(updated)
+    }
 
-            item {
-                SectionTitle("Theme")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    KeyboardTheme.entries.forEach { theme ->
-                        FilterChip(
-                            selected = settings.theme == theme,
-                            onClick = { viewModel.setTheme(theme) },
-                            label = { Text(theme.label) }
-                        )
-                    }
-                }
-            }
+    fun setCustomColors(colors: ThemeColorSet) = viewModelScope.launch { repository.setCustomColors(colors) }
 
-            item {
-                Divider()
-                SectionTitle("Custom leet mappings")
-                Text("Override a letter's substitution(s). Comma-separate multiple options.")
-            }
-
-            item {
-                CustomMappingEditor(
-                    existing = settings.customMappings,
-                    onSave = viewModel::setCustomMapping
-                )
-            }
+    class Factory(private val repository: SettingsRepository) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return SettingsViewModel(repository) as T
         }
     }
 }
 
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text = text, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-}
+class SettingsActivity : ComponentActivity() {
 
-@Composable
-private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(label)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    private val viewModel: SettingsViewModel by viewModels {
+        SettingsViewModel.Factory(SettingsRepository(applicationContext))
     }
-}
 
-@Composable
-private fun CustomMappingEditor(
-    existing: Map<Char, List<String>>,
-    onSave: (Char, String) -> Unit
-) {
-    var letterInput by remember { mutableStateOf("") }
-    var tokensInput by remember { mutableStateOf("") }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextField(
-                value = letterInput,
-                onValueChange = { if (it.length <= 1) letterInput = it },
-                label = { Text("Letter") },
-                modifier = Modifier.weight(1f)
-            )
-            TextField(
-                value = tokensInput,
-                onValueChange = { tokensInput = it },
-                label = { Text("Replacement(s)") },
-                modifier = Modifier.weight(2f)
-            )
-        }
-        Button(
-            onClick = {
-                val letter = letterInput.trim().lowercase().firstOrNull()
-                if (letter != null) {
-                    onSave(letter, tokensInput)
-                    letterInput = ""
-                    tokensInput = ""
-                }
-            }
-        ) {
-            Text("Save mapping")
-        }
-
-        if (existing.isNotEmpty()) {
-            Text("Current custom mappings:", style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
-            existing.forEach { (letter, tokens) ->
-                Text("$letter -> ${tokens.joinToString(", ")}")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            CipherKeysTheme {
+                SettingsScreen(viewModel = viewModel)
             }
         }
     }
