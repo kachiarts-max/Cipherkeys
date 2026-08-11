@@ -56,6 +56,19 @@ enum class KeyboardTheme(
         Color.parseColor("#1F4E2C"),
         Color.parseColor("#E8F5E9"),
         Color.parseColor("#A4DE02")
+    ),
+    /**
+     * Placeholder colors below (same as DARK) - when this theme is selected, the
+     * keyboard actually renders with [com.cipherkeys.app.data.SettingsRepository]'s
+     * persisted customColors instead of these, via [KeyboardSettings.customColors].
+     * These defaults only matter before the user has ever saved a custom palette.
+     */
+    CUSTOM(
+        "Custom",
+        Color.parseColor("#121212"),
+        Color.parseColor("#2A2A2A"),
+        Color.parseColor("#ECECEC"),
+        Color.parseColor("#BB86FC")
     );
 
     companion object {
