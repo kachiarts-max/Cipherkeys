@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -23,7 +24,8 @@ data class KeyboardSettings(
     val keySoundEnabled: Boolean = false,
     val keyboardHeightScale: Float = 1.0f, // 0.8 - 1.3
     val theme: KeyboardTheme = KeyboardTheme.default(),
-    val customMappings: Map<Char, List<String>> = emptyMap()
+    val customMappings: Map<Char, List<String>> = emptyMap(),
+    val customColors: ThemeColorSet = ThemeColorSet.default()
 )
 
 /**
@@ -42,9 +44,14 @@ class SettingsRepository(private val context: Context) {
         val HEIGHT_SCALE = floatPreferencesKey("height_scale")
         val THEME = stringPreferencesKey("theme")
         val CUSTOM_MAPPINGS_JSON = stringPreferencesKey("custom_mappings_json")
+        val CUSTOM_BG = intPreferencesKey("custom_theme_bg")
+        val CUSTOM_KEY_BG = intPreferencesKey("custom_theme_key_bg")
+        val CUSTOM_KEY_TEXT = intPreferencesKey("custom_theme_key_text")
+        val CUSTOM_ACCENT = intPreferencesKey("custom_theme_accent")
     }
 
     val settingsFlow: Flow<KeyboardSettings> = context.dataStore.data.map { prefs ->
+        val defaults = ThemeColorSet.default()
         KeyboardSettings(
             defaultMode = prefs[Keys.DEFAULT_MODE]
                 ?.let { name -> KeyboardMode.entries.firstOrNull { it.name == name } }
@@ -56,7 +63,13 @@ class SettingsRepository(private val context: Context) {
             keySoundEnabled = prefs[Keys.KEY_SOUND] ?: false,
             keyboardHeightScale = prefs[Keys.HEIGHT_SCALE] ?: 1.0f,
             theme = KeyboardTheme.fromName(prefs[Keys.THEME]),
-            customMappings = decodeMappings(prefs[Keys.CUSTOM_MAPPINGS_JSON])
+            customMappings = decodeMappings(prefs[Keys.CUSTOM_MAPPINGS_JSON]),
+            customColors = ThemeColorSet(
+                background = prefs[Keys.CUSTOM_BG] ?: defaults.background,
+                keyBackground = prefs[Keys.CUSTOM_KEY_BG] ?: defaults.keyBackground,
+                keyText = prefs[Keys.CUSTOM_KEY_TEXT] ?: defaults.keyText,
+                accent = prefs[Keys.CUSTOM_ACCENT] ?: defaults.accent
+            )
         )
     }
 
@@ -96,6 +109,15 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setCustomMappings(mappings: Map<Char, List<String>>) {
         context.dataStore.edit { it[Keys.CUSTOM_MAPPINGS_JSON] = encodeMappings(mappings) }
+    }
+
+    suspend fun setCustomColors(colors: ThemeColorSet) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CUSTOM_BG] = colors.background
+            prefs[Keys.CUSTOM_KEY_BG] = colors.keyBackground
+            prefs[Keys.CUSTOM_KEY_TEXT] = colors.keyText
+            prefs[Keys.CUSTOM_ACCENT] = colors.accent
+        }
     }
 
     private fun encodeMappings(mappings: Map<Char, List<String>>): String {
