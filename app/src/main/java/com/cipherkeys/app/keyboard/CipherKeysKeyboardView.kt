@@ -1,8 +1,12 @@
 package com.cipherkeys.app.keyboard
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.LayerDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -41,6 +45,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     private var customColors: ThemeColorSet = ThemeColorSet.default()
     private var heightScale: Float = 1.0f
     private var currentKeyTextColor: Int = Color.WHITE
+    private var currentThemeBackground: Int = Color.BLACK
+    private var backgroundBitmap: Bitmap? = null
+    private var backgroundOverlayAlpha: Float = 0.5f
 
     private val letterButtons = mutableListOf<Button>()
     private val modeButtons = mutableMapOf<KeyboardMode, Button>()
@@ -119,6 +126,31 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         recentEmojiList = emoji
         if (currentEmojiCategory == EmojiCategory.RECENT && emojiPanel.visibility == VISIBLE) {
             renderEmojiGrid(EmojiCategory.RECENT)
+        }
+    }
+
+    /**
+     * Sets (or clears, with bitmap = null) the keyboard's background image. When set, a
+     * black scrim of [overlayAlpha] (0 = no dim, 1 = fully covered) is drawn on top so
+     * key text stays readable regardless of the photo's own brightness. Keys themselves
+     * keep their normal theme-colored backgrounds, so the photo shows through the gaps.
+     */
+    fun setBackgroundImage(bitmap: Bitmap?, overlayAlpha: Float) {
+        backgroundBitmap = bitmap
+        backgroundOverlayAlpha = overlayAlpha
+        refreshBackgroundLayer()
+    }
+
+    private fun refreshBackgroundLayer() {
+        val bmp = backgroundBitmap
+        if (bmp != null) {
+            val bitmapDrawable = BitmapDrawable(resources, bmp)
+            val scrim = ColorDrawable(Color.BLACK).apply {
+                alpha = (backgroundOverlayAlpha.coerceIn(0f, 1f) * 255).toInt()
+            }
+            background = LayerDrawable(arrayOf(bitmapDrawable, scrim))
+        } else {
+            setBackgroundColor(currentThemeBackground)
         }
     }
 
@@ -467,7 +499,8 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             accent = currentTheme.accent
         }
         currentKeyTextColor = keyText
-        setBackgroundColor(bg)
+        currentThemeBackground = bg
+        refreshBackgroundLayer()
         modeLabel.setTextColor(keyText)
         suggestionChips.forEach { chip -> chip.setTextColor(accent) }
         forEachButton { btn -> btn.setBackgroundColor(keyBg); btn.setTextColor(keyText) }
