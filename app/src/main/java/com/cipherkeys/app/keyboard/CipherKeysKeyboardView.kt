@@ -6,14 +6,18 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.ScrollView
 import android.widget.TextView
 import com.cipherkeys.app.data.KeyboardMode
@@ -23,45 +27,57 @@ import com.cipherkeys.app.emoji.EmojiCategory
 import com.cipherkeys.app.emoji.EmojiRepository
 
 /**
- * The keyboard's visual surface: a mode-switching toolbar on top, QWERTY key rows below,
- * and a swappable emoji panel that takes over the same space as the QWERTY rows when
- * toggled (so overall keyboard height doesn't change). Built entirely with framework
- * views in code (no XML layout / KeyboardView resource format) so the row/key structure
- * is easy to read, test, and re-theme.
+ * CipherKeys keyboard visual surface.
  *
- * This view is dumb by design: it only reports raw user actions via
- * [KeyboardActionListener]. All text-transform logic (encoding/decoding) lives in
- * [CipherKeysIME] / encoder classes, not here - and emoji insertion deliberately bypasses
- * that layer entirely (see [CipherKeysIME.onEmojiSelected]), since cipher-encoding an
- * emoji wouldn't mean anything.
+ * Features:
+ * - QWERTY keyboard with number row
+ * - Mode switching
+ * - Dictionary/suggestion strip
+ * - Emoji panel
+ * - Theme support
+ * - Custom theme colors
+ * - Optional image background with readable overlay
+ * - Individual rounded borders around keys
+ * - Pressed-key visual feedback
+ * - Gboard-style key preview when a key is touched
+ *
+ * Text transformation/encoding remains outside this view.
  */
 class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
 
     var listener: KeyboardActionListener? = null
 
-    private var shiftEnabled: Boolean = false
+    private var shiftEnabled = false
     private var currentMode: KeyboardMode = KeyboardMode.default()
     private var currentTheme: KeyboardTheme = KeyboardTheme.default()
     private var customColors: ThemeColorSet = ThemeColorSet.default()
-    private var heightScale: Float = 1.0f
-    private var currentKeyTextColor: Int = Color.WHITE
-    private var currentThemeBackground: Int = Color.BLACK
+
+    private var heightScale = 1.0f
+    private var currentKeyTextColor = Color.WHITE
+    private var currentThemeBackground = Color.BLACK
+
     private var backgroundBitmap: Bitmap? = null
-    private var backgroundOverlayAlpha: Float = 0.5f
+    private var backgroundOverlayAlpha = 0.5f
 
     private val letterButtons = mutableListOf<Button>()
+    private val allKeyButtons = mutableListOf<Button>()
     private val modeButtons = mutableMapOf<KeyboardMode, Button>()
+
     private lateinit var modeLabel: TextView
     private lateinit var shiftButton: Button
+
     private val suggestionChips = mutableListOf<TextView>()
 
     private lateinit var qwertyContainer: LinearLayout
     private lateinit var emojiPanel: LinearLayout
     private lateinit var emojiGridContainer: LinearLayout
     private lateinit var emojiToggleButton: Button
+
     private val emojiCategoryTabs = mutableMapOf<EmojiCategory, Button>()
-    private var currentEmojiCategory: EmojiCategory = EmojiCategory.SMILEYS
+    private var currentEmojiCategory = EmojiCategory.SMILEYS
     private var recentEmojiList: List<String> = emptyList()
+
+    private var activePreview: PopupWindow? = null
 
     private val row1Keys = "qwertyuiop"
     private val row2Keys = "asdfghjkl"
@@ -71,6 +87,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     init {
         orientation = VERTICAL
         setPadding(dp(4), dp(4), dp(4), dp(4))
+
         buildToolbarRow()
         buildStatusRow()
         buildSuggestionStrip()
@@ -79,49 +96,56 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         applyTheme()
     }
 
-    // ---------- Public API used by the IME ----------
+    // -------------------------------------------------------------------------
+    // Public API used by the IME
+    // -------------------------------------------------------------------------
 
     fun setMode(mode: KeyboardMode) {
         currentMode = mode
+
         modeButtons.forEach { (m, btn) ->
             btn.setTypeface(null, if (m == mode) Typeface.BOLD else Typeface.NORMAL)
-            btn.alpha = if (m == mode) 1.0f else 0.6f
+            btn.alpha = if (m == mode) 1f else 0.65f
         }
+
         modeLabel.text = "Mode: ${mode.label}"
+        applyTheme()
     }
 
     fun setShiftState(enabled: Boolean) {
         shiftEnabled = enabled
+
         shiftButton.text = if (enabled) "\u21E7 SHIFT" else "shift"
         shiftButton.setTypeface(null, if (enabled) Typeface.BOLD else Typeface.NORMAL)
+
         letterButtons.forEach { btn ->
-            btn.text = if (enabled) btn.text.toString().uppercase() else btn.text.toString().lowercase()
+            val current = btn.text.toString()
+            if (current.length == 1 && current[0].isLetter()) {
+                btn.text = if (enabled) current.uppercase() else current.lowercase()
+            }
         }
     }
 
-    fun applyThemeAndHeight(theme: KeyboardTheme, heightScale: Float, customColors: ThemeColorSet) {
+    fun applyThemeAndHeight(
+        theme: KeyboardTheme,
+        heightScale: Float,
+        customColors: ThemeColorSet
+    ) {
         currentTheme = theme
         this.heightScale = heightScale
         this.customColors = customColors
         applyTheme()
     }
 
-    /**
-     * Updates the 3 suggestion chips above the keyboard. Pass an empty list to hide
-     * suggestions (chips still occupy their row, just render blank/non-clickable) -
-     * this keeps the overall keyboard height stable rather than jumping around as the
-     * user types, which would be jarring.
-     */
     fun setSuggestions(words: List<String>) {
         suggestionChips.forEachIndexed { index, chip ->
             val word = words.getOrNull(index)
             chip.text = word.orEmpty()
             chip.isEnabled = word != null
-            chip.alpha = if (word != null) 1.0f else 0.0f
+            chip.alpha = if (word != null) 1f else 0f
         }
     }
 
-    /** Pushes the latest recently-used emoji list; re-renders the grid if RECENT is open. */
     fun setRecentEmoji(emoji: List<String>) {
         recentEmojiList = emoji
         if (currentEmojiCategory == EmojiCategory.RECENT && emojiPanel.visibility == VISIBLE) {
@@ -129,12 +153,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    /**
-     * Sets (or clears, with bitmap = null) the keyboard's background image. When set, a
-     * black scrim of [overlayAlpha] (0 = no dim, 1 = fully covered) is drawn on top so
-     * key text stays readable regardless of the photo's own brightness. Keys themselves
-     * keep their normal theme-colored backgrounds, so the photo shows through the gaps.
-     */
+    /** Sets or clears the keyboard background image. */
     fun setBackgroundImage(bitmap: Bitmap?, overlayAlpha: Float) {
         backgroundBitmap = bitmap
         backgroundOverlayAlpha = overlayAlpha
@@ -143,8 +162,11 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
 
     private fun refreshBackgroundLayer() {
         val bmp = backgroundBitmap
+
         if (bmp != null) {
-            val bitmapDrawable = BitmapDrawable(resources, bmp)
+            val bitmapDrawable = BitmapDrawable(resources, bmp).apply {
+                gravity = Gravity.FILL
+            }
             val scrim = ColorDrawable(Color.BLACK).apply {
                 alpha = (backgroundOverlayAlpha.coerceIn(0f, 1f) * 255).toInt()
             }
@@ -154,22 +176,30 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    // ---------- Row builders ----------
+    // -------------------------------------------------------------------------
+    // Toolbar
+    // -------------------------------------------------------------------------
 
     private fun buildToolbarRow() {
         val scroll = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)
+            )
         }
+
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+
         KeyboardMode.entries.forEach { mode ->
             val btn = Button(context).apply {
                 text = mode.label
                 textSize = 12f
                 isAllCaps = false
+                minimumWidth = 0
+                minimumHeight = 0
                 setPadding(dp(12), dp(2), dp(12), dp(2))
                 setOnClickListener {
                     setMode(mode)
@@ -177,20 +207,29 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 }
             }
             modeButtons[mode] = btn
+            registerKeyButton(btn)
             row.addView(btn, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
             ).apply { marginEnd = dp(4) })
         }
+
         emojiToggleButton = Button(context).apply {
             text = "\uD83D\uDE00"
-            textSize = 14f
+            textSize = 16f
             isAllCaps = false
+            minimumWidth = 0
+            minimumHeight = 0
             setPadding(dp(12), dp(2), dp(12), dp(2))
             setOnClickListener { toggleEmojiPanel() }
         }
+        registerKeyButton(emojiToggleButton)
+
         row.addView(emojiToggleButton, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
         ).apply { marginEnd = dp(4) })
+
         scroll.addView(row)
         addView(scroll)
     }
@@ -204,38 +243,53 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         addView(modeLabel)
     }
 
+    // -------------------------------------------------------------------------
+    // Suggestions
+    // -------------------------------------------------------------------------
+
     private fun buildSuggestionStrip() {
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(32))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(32)
+            )
             gravity = Gravity.CENTER_VERTICAL
         }
+
         repeat(3) {
             val chip = TextView(context).apply {
                 textSize = 13f
                 gravity = Gravity.CENTER
+                setPadding(dp(4), 0, dp(4), 0)
                 setOnClickListener {
                     val word = text.toString()
                     if (word.isNotEmpty()) listener?.onSuggestionSelected(word)
                 }
             }
             suggestionChips.add(chip)
-            row.addView(chip, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+            row.addView(chip, LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+            ))
         }
         addView(row)
     }
 
-    /** Wraps the 5 QWERTY-area rows in one container so it can be hidden/shown as a unit
-     *  when the emoji panel toggles, without disturbing their individual weights. */
+    // -------------------------------------------------------------------------
+    // QWERTY keyboard
+    // -------------------------------------------------------------------------
+
     private fun buildQwertyContainer() {
         qwertyContainer = LinearLayout(context).apply {
             orientation = VERTICAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 5f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 5f
+            )
         }
         addView(qwertyContainer)
+
         buildNumberRow(qwertyContainer)
-        buildRow(qwertyContainer, row1Keys, sidePadding = 0)
-        buildRow(qwertyContainer, row2Keys, sidePadding = 20)
+        buildRow(qwertyContainer, row1Keys, 0)
+        buildRow(qwertyContainer, row2Keys, 20)
         buildRow3WithShiftAndBackspace(qwertyContainer)
         buildBottomRow(qwertyContainer)
     }
@@ -248,10 +302,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             )
         }
         numberKeys.forEach { c ->
-            row.addView(
-                makeCharKey(c.toString(), isLetter = false),
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-            )
+            row.addView(makeCharKey(c.toString(), false), LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+            ).apply { setMargins(dp(1), dp(1), dp(1), dp(1)) })
         }
         parent.addView(row)
     }
@@ -265,11 +318,11 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             )
             setPadding(dp(sidePadding), 0, dp(sidePadding), 0)
         }
+
         keys.forEach { c ->
-            row.addView(
-                makeCharKey(c.toString(), isLetter = true),
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-            )
+            row.addView(makeCharKey(c.toString(), true), LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+            ).apply { setMargins(dp(1), dp(1), dp(1), dp(1)) })
         }
         parent.addView(row)
     }
@@ -281,6 +334,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
             )
         }
+
         shiftButton = Button(context).apply {
             text = "shift"
             textSize = 12f
@@ -292,13 +346,18 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 listener?.onShiftToggle()
             }
         }
-        row.addView(shiftButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f))
+        registerKeyButton(shiftButton)
+
+        row.addView(shiftButton, LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f
+        ).apply { setMargins(dp(1), dp(1), dp(1), dp(1)) })
+
         row3Keys.forEach { c ->
-            row.addView(
-                makeCharKey(c.toString(), isLetter = true),
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-            )
+            row.addView(makeCharKey(c.toString(), true), LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+            ).apply { setMargins(dp(1), dp(1), dp(1), dp(1)) })
         }
+
         val backspaceButton = Button(context).apply {
             text = "\u232B"
             textSize = 16f
@@ -306,7 +365,12 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             minimumHeight = 0
             setOnClickListener { listener?.onBackspace() }
         }
-        row.addView(backspaceButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f))
+        registerKeyButton(backspaceButton)
+
+        row.addView(backspaceButton, LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f
+        ).apply { setMargins(dp(1), dp(1), dp(1), dp(1)) })
+
         parent.addView(row)
     }
 
@@ -317,9 +381,16 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
             )
         }
-        row.addView(makeCharKey(",", isLetter = false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-        row.addView(makeCharKey("?", isLetter = false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
-        row.addView(makeCharKey("!", isLetter = false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+
+        row.addView(makeCharKey(",", false), LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+        ))
+        row.addView(makeCharKey("?", false), LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+        ))
+        row.addView(makeCharKey("!", false), LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+        ))
 
         val spaceButton = Button(context).apply {
             text = "space"
@@ -329,9 +400,14 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             minimumHeight = 0
             setOnClickListener { listener?.onSpace() }
         }
-        row.addView(spaceButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 3f))
+        registerKeyButton(spaceButton)
+        row.addView(spaceButton, LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 3f
+        ).apply { setMargins(dp(1), dp(1), dp(1), dp(1)) })
 
-        row.addView(makeCharKey(".", isLetter = false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        row.addView(makeCharKey(".", false), LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+        ))
 
         val enterButton = Button(context).apply {
             text = "\u23CE"
@@ -340,54 +416,164 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             minimumHeight = 0
             setOnClickListener { listener?.onEnter() }
         }
-        row.addView(enterButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f))
+        registerKeyButton(enterButton)
+        row.addView(enterButton, LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1.5f
+        ).apply { setMargins(dp(1), dp(1), dp(1), dp(1)) })
+
         parent.addView(row)
     }
 
     private fun makeCharKey(label: String, isLetter: Boolean): Button {
         val btn = Button(context).apply {
             text = label
-            textSize = 14f
+            textSize = if (isLetter) 15f else 14f
             isAllCaps = false
             minimumWidth = 0
             minimumHeight = 0
             setPadding(dp(2), 0, dp(2), 0)
+            stateListAnimator = null
             setOnClickListener {
-                val txt = (it as Button).text.toString()
-                listener?.onCharKey(if (txt.isNotEmpty()) txt[0] else ' ')
+                val txt = text.toString()
+                if (txt.isNotEmpty()) listener?.onCharKey(txt[0])
             }
         }
+
+        registerKeyButton(btn)
         if (isLetter) letterButtons.add(btn)
+        attachKeyPreview(btn)
         return btn
     }
 
-    // ---------- Emoji panel ----------
+    private fun registerKeyButton(button: Button) {
+        if (!allKeyButtons.contains(button)) allKeyButtons.add(button)
+    }
+
+    // -------------------------------------------------------------------------
+    // Gboard-style key preview
+    // -------------------------------------------------------------------------
+
+    private fun attachKeyPreview(button: Button) {
+        button.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val value = button.text.toString()
+                    if (value.isNotEmpty() && value.length <= 2 && value != "space") {
+                        showKeyPreview(button, value)
+                    }
+                    view.isPressed = true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    hideKeyPreview()
+                    view.isPressed = false
+                    if (event.actionMasked == MotionEvent.ACTION_UP) view.performClick()
+                }
+            }
+            true
+        }
+    }
+
+    private fun showKeyPreview(anchor: View, label: String) {
+        hideKeyPreview()
+
+        val previewHeight = dp(58)
+        val previewWidth = dp(52)
+
+        val preview = TextView(context).apply {
+            text = label
+            textSize = 25f
+            gravity = Gravity.CENTER
+            setTextColor(currentKeyTextColor)
+            background = createPreviewBackground()
+            elevation = dp(8).toFloat()
+        }
+
+        val popup = PopupWindow(
+            preview,
+            previewWidth,
+            previewHeight,
+            false
+        ).apply {
+            isClippingEnabled = false
+            elevation = dp(8).toFloat()
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            isOutsideTouchable = false
+        }
+
+        activePreview = popup
+
+        anchor.post {
+            if (activePreview !== popup) return@post
+
+            val location = IntArray(2)
+            anchor.getLocationOnScreen(location)
+            val x = location[0] + anchor.width / 2 - previewWidth / 2
+            val y = location[1] - previewHeight + dp(6)
+
+            popup.showAtLocation(
+                this,
+                Gravity.TOP or Gravity.START,
+                x.coerceAtLeast(0),
+                y.coerceAtLeast(0)
+            )
+        }
+    }
+
+    private fun hideKeyPreview() {
+        activePreview?.dismiss()
+        activePreview = null
+    }
+
+    private fun createPreviewBackground(): GradientDrawable {
+        val fill = blendColor(currentThemeBackground, currentKeyTextColor, 0.18f)
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(fill)
+            setStroke(dp(1), currentKeyTextColor)
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Emoji panel
+    // -------------------------------------------------------------------------
 
     private fun buildEmojiPanel() {
         emojiPanel = LinearLayout(context).apply {
             orientation = VERTICAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 5f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 5f
+            )
             visibility = GONE
         }
         addView(emojiPanel)
 
         val tabsScroll = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(36)
+            )
         }
+
         val tabsRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+
         val backButton = Button(context).apply {
             text = "\u2328 ABC"
             textSize = 12f
             isAllCaps = false
+            minimumWidth = 0
+            minimumHeight = 0
             setPadding(dp(10), dp(2), dp(10), dp(2))
             setOnClickListener { showQwerty() }
         }
+        registerKeyButton(backButton)
+
         tabsRow.addView(backButton, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
         ).apply { marginEnd = dp(6) })
 
         EmojiCategory.entries.forEach { category ->
@@ -395,6 +581,8 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 text = category.icon
                 textSize = 14f
                 isAllCaps = false
+                minimumWidth = 0
+                minimumHeight = 0
                 setPadding(dp(10), dp(2), dp(10), dp(2))
                 setOnClickListener {
                     currentEmojiCategory = category
@@ -403,16 +591,22 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 }
             }
             emojiCategoryTabs[category] = tab
+            registerKeyButton(tab)
             tabsRow.addView(tab, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
             ).apply { marginEnd = dp(4) })
         }
+
         tabsScroll.addView(tabsRow)
         emojiPanel.addView(tabsScroll)
 
         val gridScroll = ScrollView(context).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+            )
         }
+
         emojiGridContainer = LinearLayout(context).apply {
             orientation = VERTICAL
         }
@@ -421,14 +615,11 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     }
 
     private fun toggleEmojiPanel() {
-        if (emojiPanel.visibility == VISIBLE) {
-            showQwerty()
-        } else {
-            showEmojiPanel()
-        }
+        if (emojiPanel.visibility == VISIBLE) showQwerty() else showEmojiPanel()
     }
 
     private fun showEmojiPanel() {
+        hideKeyPreview()
         qwertyContainer.visibility = GONE
         emojiPanel.visibility = VISIBLE
         updateEmojiTabHighlight()
@@ -436,19 +627,26 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     }
 
     private fun showQwerty() {
+        hideKeyPreview()
         emojiPanel.visibility = GONE
         qwertyContainer.visibility = VISIBLE
     }
 
     private fun updateEmojiTabHighlight() {
         emojiCategoryTabs.forEach { (category, btn) ->
-            btn.alpha = if (category == currentEmojiCategory) 1.0f else 0.6f
+            btn.alpha = if (category == currentEmojiCategory) 1f else 0.6f
         }
     }
 
     private fun renderEmojiGrid(category: EmojiCategory) {
         emojiGridContainer.removeAllViews()
-        val emoji = if (category == EmojiCategory.RECENT) recentEmojiList else EmojiRepository.emojisFor(category)
+
+        val emoji = if (category == EmojiCategory.RECENT) {
+            recentEmojiList
+        } else {
+            EmojiRepository.emojisFor(category)
+        }
+
         if (emoji.isEmpty()) {
             val empty = TextView(context).apply {
                 text = if (category == EmojiCategory.RECENT) "No recent emoji yet" else ""
@@ -460,33 +658,42 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             emojiGridContainer.addView(empty)
             return
         }
+
         val perRow = 8
         emoji.chunked(perRow).forEach { rowEmoji ->
             val row = LinearLayout(context).apply {
                 orientation = HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(42)
+                )
             }
-            rowEmoji.forEach { e ->
+
+            rowEmoji.forEach { emojiValue ->
                 val cell = TextView(context).apply {
-                    text = e
+                    text = emojiValue
                     textSize = 20f
                     gravity = Gravity.CENTER
                     setTextColor(currentKeyTextColor)
-                    setOnClickListener { listener?.onEmojiSelected(e) }
+                    setOnClickListener { listener?.onEmojiSelected(emojiValue) }
                 }
-                row.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+                row.addView(cell, LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+                ))
             }
             emojiGridContainer.addView(row)
         }
     }
 
-    // ---------- Theming ----------
+    // -------------------------------------------------------------------------
+    // Theming
+    // -------------------------------------------------------------------------
 
     private fun applyTheme() {
         val bg: Int
         val keyBg: Int
         val keyText: Int
         val accent: Int
+
         if (currentTheme == KeyboardTheme.CUSTOM) {
             bg = customColors.background
             keyBg = customColors.keyBackground
@@ -498,47 +705,119 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             keyText = currentTheme.keyText
             accent = currentTheme.accent
         }
+
         currentKeyTextColor = keyText
         currentThemeBackground = bg
         refreshBackgroundLayer()
+
         modeLabel.setTextColor(keyText)
-        suggestionChips.forEach { chip -> chip.setTextColor(accent) }
-        forEachButton { btn -> btn.setBackgroundColor(keyBg); btn.setTextColor(keyText) }
-        modeButtons[currentMode]?.setTextColor(accent)
+        suggestionChips.forEach { it.setTextColor(accent) }
+
+        allKeyButtons.forEach { button ->
+            applyKeyStyle(button, keyBg, keyText, accent)
+        }
+
+        modeButtons.forEach { (mode, btn) ->
+            btn.setTextColor(if (mode == currentMode) accent else keyText)
+        }
+
         emojiCategoryTabs[currentEmojiCategory]?.setTextColor(accent)
-        // Re-tint any already-rendered emoji cells (they're plain TextViews, not Buttons,
-        // so forEachButton's walk doesn't reach them).
+
         for (i in 0 until emojiGridContainer.childCount) {
             val row = emojiGridContainer.getChildAt(i)
             if (row is ViewGroup) {
                 for (j in 0 until row.childCount) {
-                    val cell = row.getChildAt(j)
-                    if (cell is TextView) cell.setTextColor(keyText)
+                    val child = row.getChildAt(j)
+                    if (child is TextView) child.setTextColor(keyText)
                 }
             }
         }
 
         val scale = heightScale.coerceIn(0.8f, 1.3f)
-        // Base includes the 32dp suggestion strip added above the key rows; the
-        // weighted rows themselves keep the same proportions as before.
         val baseHeightDp = 222
         layoutParams = (layoutParams ?: LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(baseHeightDp)
         )).apply {
             height = dp((baseHeightDp * scale).toInt())
         }
+        requestLayout()
     }
 
-    private fun forEachButton(action: (Button) -> Unit) {
-        fun walk(view: View) {
-            if (view is Button) action(view)
-            if (view is ViewGroup) {
-                for (i in 0 until view.childCount) walk(view.getChildAt(i))
-            }
+    /** Gives every keyboard key an individual border, rounded corners and pressed state. */
+    private fun applyKeyStyle(
+        button: Button,
+        fillColor: Int,
+        textColor: Int,
+        accentColor: Int
+    ) {
+        button.setTextColor(textColor)
+
+        val normal = createKeyDrawable(
+            fillColor,
+            mixBorderColor(fillColor, textColor),
+            dp(1),
+            dp(7)
+        )
+        val pressed = createKeyDrawable(
+            blendColor(fillColor, accentColor, 0.20f),
+            accentColor,
+            dp(2),
+            dp(7)
+        )
+        val focused = createKeyDrawable(
+            blendColor(fillColor, accentColor, 0.10f),
+            accentColor,
+            dp(1),
+            dp(7)
+        )
+
+        val states = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), pressed)
+            addState(intArrayOf(android.R.attr.state_focused), focused)
+            addState(intArrayOf(), normal)
         }
-        walk(this)
+
+        button.background = states
+        button.elevation = 0f
+        button.translationZ = 0f
     }
 
-    private fun dp(value: Int): Int =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics).toInt()
+    private fun createKeyDrawable(
+        fillColor: Int,
+        borderColor: Int,
+        borderWidth: Int,
+        radius: Int
+    ): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = radius.toFloat()
+            setColor(fillColor)
+            setStroke(borderWidth, borderColor)
+        }
+    }
+
+    private fun mixBorderColor(keyColor: Int, textColor: Int): Int {
+        return blendColor(keyColor, textColor, 0.28f)
+    }
+
+    private fun blendColor(from: Int, to: Int, amount: Float): Int {
+        val t = amount.coerceIn(0f, 1f)
+        val r = (Color.red(from) + (Color.red(to) - Color.red(from)) * t).toInt()
+        val g = (Color.green(from) + (Color.green(to) - Color.green(from)) * t).toInt()
+        val b = (Color.blue(from) + (Color.blue(to) - Color.blue(from)) * t).toInt()
+        return Color.rgb(r, g, b)
+    }
+
+    private fun dp(value: Int): Int {
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            value.toFloat(),
+            resources.displayMetrics
+        ).toInt()
+    }
+
+    override fun onDetachedFromWindow() {
+        hideKeyPreview()
+        super.onDetachedFromWindow()
+    }
 }
