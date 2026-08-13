@@ -25,7 +25,13 @@ data class KeyboardSettings(
     val keyboardHeightScale: Float = 1.0f, // 0.8 - 1.3
     val theme: KeyboardTheme = KeyboardTheme.default(),
     val customMappings: Map<Char, List<String>> = emptyMap(),
-    val customColors: ThemeColorSet = ThemeColorSet.default()
+    val customColors: ThemeColorSet = ThemeColorSet.default(),
+    // Background image lives in the app's own private storage (see SettingsScreen's
+    // picker flow) - this is an absolute file path, never a content:// URI, since
+    // picker-granted URIs aren't guaranteed to remain readable across restarts.
+    val backgroundImagePath: String? = null,
+    val useImageBackground: Boolean = false,
+    val backgroundOverlayAlpha: Float = 0.5f
 )
 
 /**
@@ -48,99 +54,9 @@ class SettingsRepository(private val context: Context) {
         val CUSTOM_KEY_BG = intPreferencesKey("custom_theme_key_bg")
         val CUSTOM_KEY_TEXT = intPreferencesKey("custom_theme_key_text")
         val CUSTOM_ACCENT = intPreferencesKey("custom_theme_accent")
+        val BACKGROUND_IMAGE_PATH = stringPreferencesKey("background_image_path")
+        val USE_IMAGE_BACKGROUND = booleanPreferencesKey("use_image_background")
+        val BACKGROUND_OVERLAY_ALPHA = floatPreferencesKey("background_overlay_alpha")
     }
 
-    val settingsFlow: Flow<KeyboardSettings> = context.dataStore.data.map { prefs ->
-        val defaults = ThemeColorSet.default()
-        KeyboardSettings(
-            defaultMode = prefs[Keys.DEFAULT_MODE]
-                ?.let { name -> KeyboardMode.entries.firstOrNull { it.name == name } }
-                ?: KeyboardMode.default(),
-            autoEncodeEnabled = prefs[Keys.AUTO_ENCODE] ?: true,
-            autoDecodeEnabled = prefs[Keys.AUTO_DECODE] ?: false,
-            autocorrectEnabled = prefs[Keys.AUTOCORRECT] ?: false,
-            vibrationEnabled = prefs[Keys.VIBRATION] ?: true,
-            keySoundEnabled = prefs[Keys.KEY_SOUND] ?: false,
-            keyboardHeightScale = prefs[Keys.HEIGHT_SCALE] ?: 1.0f,
-            theme = KeyboardTheme.fromName(prefs[Keys.THEME]),
-            customMappings = decodeMappings(prefs[Keys.CUSTOM_MAPPINGS_JSON]),
-            customColors = ThemeColorSet(
-                background = prefs[Keys.CUSTOM_BG] ?: defaults.background,
-                keyBackground = prefs[Keys.CUSTOM_KEY_BG] ?: defaults.keyBackground,
-                keyText = prefs[Keys.CUSTOM_KEY_TEXT] ?: defaults.keyText,
-                accent = prefs[Keys.CUSTOM_ACCENT] ?: defaults.accent
-            )
-        )
-    }
-
-    suspend fun current(): KeyboardSettings = settingsFlow.first()
-
-    suspend fun setDefaultMode(mode: KeyboardMode) {
-        context.dataStore.edit { it[Keys.DEFAULT_MODE] = mode.name }
-    }
-
-    suspend fun setAutoEncode(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.AUTO_ENCODE] = enabled }
-    }
-
-    suspend fun setAutoDecode(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.AUTO_DECODE] = enabled }
-    }
-
-    suspend fun setAutocorrect(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.AUTOCORRECT] = enabled }
-    }
-
-    suspend fun setVibration(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.VIBRATION] = enabled }
-    }
-
-    suspend fun setKeySound(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.KEY_SOUND] = enabled }
-    }
-
-    suspend fun setKeyboardHeightScale(scale: Float) {
-        context.dataStore.edit { it[Keys.HEIGHT_SCALE] = scale }
-    }
-
-    suspend fun setTheme(theme: KeyboardTheme) {
-        context.dataStore.edit { it[Keys.THEME] = theme.name }
-    }
-
-    suspend fun setCustomMappings(mappings: Map<Char, List<String>>) {
-        context.dataStore.edit { it[Keys.CUSTOM_MAPPINGS_JSON] = encodeMappings(mappings) }
-    }
-
-    suspend fun setCustomColors(colors: ThemeColorSet) {
-        context.dataStore.edit { prefs ->
-            prefs[Keys.CUSTOM_BG] = colors.background
-            prefs[Keys.CUSTOM_KEY_BG] = colors.keyBackground
-            prefs[Keys.CUSTOM_KEY_TEXT] = colors.keyText
-            prefs[Keys.CUSTOM_ACCENT] = colors.accent
-        }
-    }
-
-    private fun encodeMappings(mappings: Map<Char, List<String>>): String {
-        val json = JSONObject()
-        mappings.forEach { (letter, tokens) ->
-            json.put(letter.toString(), tokens.joinToString(","))
-        }
-        return json.toString()
-    }
-
-    private fun decodeMappings(raw: String?): Map<Char, List<String>> {
-        if (raw.isNullOrBlank()) return emptyMap()
-        return try {
-            val json = JSONObject(raw)
-            val result = mutableMapOf<Char, List<String>>()
-            json.keys().forEach { key ->
-                if (key.isNotEmpty()) {
-                    result[key[0]] = json.getString(key).split(",").filter { it.isNotEmpty() }
-                }
-            }
-            result
-        } catch (e: Exception) {
-            emptyMap()
-        }
-    }
-}
+    val settingsFlow: Flow<KeyboardSettings> = c
