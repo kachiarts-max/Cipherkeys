@@ -1,6 +1,8 @@
 package com.cipherkeys.app.keyboard
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Build
@@ -26,6 +28,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The real Android keyboard. Once installed and enabled in
@@ -58,6 +61,9 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     private lateinit var decoder: CipherKeysDecoder
     private lateinit var dictionary: Dictionary
     private lateinit var recentEmojiStore: RecentEmojiStore
+    // Cached decode of the current background image (re-decoded only when the saved
+    // file path actually changes, not on every settings emission).
+    private var backgroundBitmap: Bitmap? = null
 
     // Tracks the word currently being typed, in plain (unencoded) letters, plus how
     // many field-characters each of those raw letters turned into once encoded (a
@@ -76,10 +82,16 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         serviceScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
                 val mappingsChanged = settings.customMappings != currentSettings.customMappings
+                val backgroundPathChanged = settings.backgroundImagePath != currentSettings.backgroundImagePath
                 currentSettings = settings
                 if (mappingsChanged) rebuildEncoders(settings.customMappings)
+                if (backgroundPathChanged) {
+                    backgroundBitmap = settings.backgroundImagePath?.let { decodeBackgroundBitmap(it) }
+                }
                 if (::keyboardView.isInitialized) {
                     keyboardView.applyThemeAndHeight(settings.theme, settings.keyboardHeightScale, settings.customColors)
+                    val bitmapToShow = if (settings.useImageBackground) backgroundBitmap else null
+                    keyboardView.setBackgroundImage(bitmapToShow, settings.backgroundOverlayAlpha)
                 }
             }
         }
@@ -98,11 +110,30 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         decoder = CipherKeysDecoder(customMappings)
     }
 
+    /**
+     * Decodes the app's own private copy of the background image (see SettingsScreen's
+     * picker flow - the file always lives in app-private storage, never a raw picker
+     * URI, so this never needs a permission check). Downsampled aggressively since it's
+     * only ever shown at keyboard size, keeping this fast and memory-safe.
+     */
+    private suspend fun decodeBackgroundBitmap(path: String): Bitmap? = withContext(Dispatchers.IO) {
+        try {
+            val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+            BitmapFactory.decodeFile(path, options)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override fun onCreateInputView(): View {
         val view = CipherKeysKeyboardView(this)
         view.listener = this
         keyboardView = view
         keyboardView.applyThemeAndHeight(currentSettings.theme, currentSettings.keyboardHeightScale, currentSettings.customColors)
+        keyboardView.setBackgroundImage(
+            if (currentSettings.useImageBackground) backgroundBitmap else null,
+            currentSettings.backgroundOverlayAlpha
+        )
         return view
     }
 
