@@ -1,4 +1,4 @@
-package com.cipherkeys.app.keyboard
+    package com.cipherkeys.app.keyboard
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -30,11 +30,13 @@ import com.cipherkeys.app.emoji.EmojiRepository
  * CipherKeys keyboard visual surface.
  *
  * Features:
+ *
  * - QWERTY keyboard with number row
  * - Separate Symbols keyboard
- * - Separate Emoji keyboard
+ * - QWERTY <-> Symbols switching
  * - Mode switching
- * - Dictionary/suggestion strip
+ * - Dictionary / suggestion strip
+ * - Emoji panel
  * - Theme support
  * - Custom theme colors
  * - Optional image background
@@ -42,14 +44,14 @@ import com.cipherkeys.app.emoji.EmojiRepository
  * - Pressed-key visual feedback
  * - Gboard-style key preview
  *
- * Text transformation/encoding remains outside this view.
+ * Text transformation / encoding remains inside CipherKeysIME.
  */
 class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
 
     var listener: KeyboardActionListener? = null
 
     // -------------------------------------------------------------------------
-    // GENERAL STATE
+    // STATE
     // -------------------------------------------------------------------------
 
     private var shiftEnabled = false
@@ -65,60 +67,41 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     private var backgroundOverlayAlpha = 0.5f
 
     // -------------------------------------------------------------------------
-    // KEY COLLECTIONS
+    // KEY REGISTRY
     // -------------------------------------------------------------------------
 
     private val letterButtons = mutableListOf<Button>()
     private val allKeyButtons = mutableListOf<Button>()
     private val modeButtons = mutableMapOf<KeyboardMode, Button>()
 
+    // -------------------------------------------------------------------------
+    // UI
+    // -------------------------------------------------------------------------
+
     private lateinit var modeLabel: TextView
     private lateinit var shiftButton: Button
 
     private val suggestionChips = mutableListOf<TextView>()
 
-    // -------------------------------------------------------------------------
-    // KEYBOARD PANELS
-    // -------------------------------------------------------------------------
-
     private lateinit var qwertyContainer: LinearLayout
 
-    private lateinit var emojiPanel: LinearLayout
-    private lateinit var emojiGridContainer: LinearLayout
-    private lateinit var emojiToggleButton: Button
-
-    private lateinit var symbolsPanel: LinearLayout
-    private lateinit var symbolsGridContainer: LinearLayout
+    /*
+     * Separate symbols keyboard.
+     */
+    private lateinit var symbolsContainer: LinearLayout
     private lateinit var symbolsToggleButton: Button
 
     // -------------------------------------------------------------------------
     // EMOJI
     // -------------------------------------------------------------------------
 
+    private lateinit var emojiPanel: LinearLayout
+    private lateinit var emojiGridContainer: LinearLayout
+    private lateinit var emojiToggleButton: Button
+
     private val emojiCategoryTabs = mutableMapOf<EmojiCategory, Button>()
     private var currentEmojiCategory = EmojiCategory.SMILEYS
     private var recentEmojiList: List<String> = emptyList()
-
-    // -------------------------------------------------------------------------
-    // SYMBOLS
-    // -------------------------------------------------------------------------
-
-    private enum class SymbolCategory(
-        val label: String
-    ) {
-        COMMON("123"),
-        MATH("#+="),
-        BRACKETS("()[]"),
-        CURRENCY("€$"),
-        ARROWS("←→"),
-        EXTRA("©")
-    }
-
-    private val symbolCategoryTabs =
-        mutableMapOf<SymbolCategory, Button>()
-
-    private var currentSymbolCategory =
-        SymbolCategory.COMMON
 
     // -------------------------------------------------------------------------
     // KEY PREVIEW
@@ -127,7 +110,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     private var activePreview: PopupWindow? = null
 
     // -------------------------------------------------------------------------
-    // QWERTY DATA
+    // KEY DEFINITIONS
     // -------------------------------------------------------------------------
 
     private val row1Keys = "qwertyuiop"
@@ -136,75 +119,104 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     private val numberKeys = "1234567890"
 
     // -------------------------------------------------------------------------
-    // SYMBOL DATA
+    // SYMBOL DEFINITIONS
     // -------------------------------------------------------------------------
 
-    private val commonSymbols = listOf(
-        "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
-        "@", "#", "$", "_", "&", "-", "+", "(", ")",
-        "/", "*", "\"", "'", ":", ";", "!", "?"
+    /*
+     * Symbols are deliberately kept separate from the QWERTY keyboard.
+     *
+     * These buttons call onCharKey(), so CipherKeysIME remains responsible
+     * for committing the actual character.
+     */
+    private val symbolRow1 = arrayOf(
+        "~",
+        "`",
+        "!",
+        "@",
+        "#",
+        "$",
+        "%",
+        "^",
+        "&",
+        "*"
     )
 
-    private val mathSymbols = listOf(
-        "+", "−", "×", "÷", "=",
-        "≠", "≈", "≤", "≥", "±",
-        "∞", "√", "∑", "∏", "∫",
-        "π", "∆", "∂", "∇", "∝",
-        "%", "^", "~", "|", "¬"
+    private val symbolRow2 = arrayOf(
+        "(",
+        ")",
+        "-",
+        "_",
+        "+",
+        "=",
+        "[",
+        "]",
+        "{",
+        "}"
     )
 
-    private val bracketSymbols = listOf(
-        "(", ")", "[", "]", "{", "}",
-        "<", ">",
-        "«", "»",
-        "‹", "›",
-        "⟨", "⟩",
-        "⟦", "⟧",
-        "⦃", "⦄",
-        "/", "\\"
+    private val symbolRow3 = arrayOf(
+        "\\",
+        "|",
+        ";",
+        ":",
+        "'",
+        "\"",
+        ",",
+        ".",
+        "<",
+        ">"
     )
 
-    private val currencySymbols = listOf(
-        "$", "€", "£", "¥", "₦",
-        "₩", "₹", "₽", "₺", "₴",
-        "₱", "₫", "฿", "₡", "₲",
-        "₵", "₸", "₼", "₾", "₿"
+    private val symbolRow4 = arrayOf(
+        "/",
+        "?",
+        "¿",
+        "¡",
+        "°",
+        "•",
+        "×",
+        "÷",
+        "±",
+        "©"
     )
 
-    private val arrowSymbols = listOf(
-        "←", "→", "↑", "↓",
-        "↔", "↕",
-        "↖", "↗", "↘", "↙",
-        "⇐", "⇒", "⇑", "⇓",
-        "⇔", "⇕",
-        "➜", "➤", "➝", "➞",
-        "↩", "↪", "⤴", "⤵"
-    )
-
-    private val extraSymbols = listOf(
-        "©", "®", "™", "°",
-        "•", "·", "…", "‰",
-        "§", "¶", "†", "‡",
-        "※", "★", "☆",
-        "✓", "✔", "✕", "✖",
-        "♥", "♡", "♠", "♣",
-        "♦", "♢"
-    )
-
-    // =========================================================================
-    // INITIALIZATION
-    // =========================================================================
+    // -------------------------------------------------------------------------
+    // INIT
+    // -------------------------------------------------------------------------
 
     init {
         orientation = VERTICAL
-        setPadding(dp(4), dp(4), dp(4), dp(4))
+
+        setPadding(
+            dp(4),
+            dp(4),
+            dp(4),
+            dp(4)
+        )
 
         buildToolbarRow()
         buildStatusRow()
         buildSuggestionStrip()
+
+        /*
+         * Main QWERTY keyboard.
+         */
         buildQwertyContainer()
-        buildSymbolsPanel()
+
+        /*
+         * Separate symbols keyboard.
+         */
+        buildSymbolsContainer()
+
+        /*
+         * Emoji panel.
+         */
         buildEmojiPanel()
+
+        /*
+         * Start on QWERTY.
+         */
+        showQwerty()
 
         applyTheme()
     }
@@ -218,18 +230,26 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         currentMode = mode
 
         modeButtons.forEach { (m, btn) ->
+
             btn.setTypeface(
                 null,
-                if (m == mode) Typeface.BOLD
-                else Typeface.NORMAL
+                if (m == mode) {
+                    Typeface.BOLD
+                } else {
+                    Typeface.NORMAL
+                }
             )
 
             btn.alpha =
-                if (m == mode) 1f
-                else 0.65f
+                if (m == mode) {
+                    1f
+                } else {
+                    0.65f
+                }
         }
 
-        modeLabel.text = "Mode: ${mode.label}"
+        modeLabel.text =
+            "Mode: ${mode.label}"
 
         applyTheme()
     }
@@ -239,13 +259,19 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         shiftEnabled = enabled
 
         shiftButton.text =
-            if (enabled) "\u21E7 SHIFT"
-            else "shift"
+            if (enabled) {
+                "\u21E7 SHIFT"
+            } else {
+                "shift"
+            }
 
         shiftButton.setTypeface(
             null,
-            if (enabled) Typeface.BOLD
-            else Typeface.NORMAL
+            if (enabled) {
+                Typeface.BOLD
+            } else {
+                Typeface.NORMAL
+            }
         )
 
         letterButtons.forEach { btn ->
@@ -259,10 +285,11 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             ) {
 
                 btn.text =
-                    if (enabled)
+                    if (enabled) {
                         current.uppercase()
-                    else
+                    } else {
                         current.lowercase()
+                    }
             }
         }
     }
@@ -294,21 +321,23 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 word != null
 
             chip.alpha =
-                if (word != null) 1f
-                else 0f
+                if (word != null) {
+                    1f
+                } else {
+                    0f
+                }
         }
     }
 
-    fun setRecentEmoji(
-        emoji: List<String>
-    ) {
+    fun setRecentEmoji(emoji: List<String>) {
 
         recentEmojiList = emoji
 
         if (
             currentEmojiCategory ==
             EmojiCategory.RECENT &&
-            emojiPanel.visibility == VISIBLE
+            emojiPanel.visibility ==
+            VISIBLE
         ) {
 
             renderEmojiGrid(
@@ -317,7 +346,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         }
     }
 
-    /** Sets or clears the keyboard background image. */
+    /**
+     * Sets or clears the keyboard background image.
+     */
     fun setBackgroundImage(
         bitmap: Bitmap?,
         overlayAlpha: Float
@@ -352,12 +383,13 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ColorDrawable(
                     Color.BLACK
                 ).apply {
+
                     alpha =
                         (
                             backgroundOverlayAlpha
                                 .coerceIn(0f, 1f) *
                                 255
-                            ).toInt()
+                        ).toInt()
                 }
 
             background =
@@ -449,7 +481,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             modeButtons[mode] =
                 btn
 
-            registerKeyButton(btn)
+            registerKeyButton(
+                btn
+            )
 
             row.addView(
                 btn,
@@ -463,15 +497,17 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             )
         }
 
-        // ---------------------------------------------------------------------
-        // SYMBOLS BUTTON
-        // ---------------------------------------------------------------------
-
+        /*
+         * Symbols button.
+         *
+         * This does NOT change the keyboard mode.
+         * It only changes the visual keyboard surface.
+         */
         symbolsToggleButton =
             Button(context).apply {
 
                 text =
-                    "?123"
+                    "123"
 
                 textSize =
                     13f
@@ -486,14 +522,14 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     0
 
                 setPadding(
-                    dp(12),
+                    dp(10),
                     dp(2),
-                    dp(12),
+                    dp(10),
                     dp(2)
                 )
 
                 setOnClickListener {
-                    toggleSymbolsPanel()
+                    showSymbols()
                 }
             }
 
@@ -512,10 +548,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
         )
 
-        // ---------------------------------------------------------------------
-        // EMOJI BUTTON
-        // ---------------------------------------------------------------------
-
+        /*
+         * Emoji button.
+         */
         emojiToggleButton =
             Button(context).apply {
 
@@ -589,7 +624,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 )
             }
 
-        addView(modeLabel)
+        addView(
+            modeLabel
+        )
     }
 
     // =========================================================================
@@ -599,7 +636,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     private fun buildSuggestionStrip() {
 
         val row =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     HORIZONTAL
@@ -617,7 +656,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         repeat(3) {
 
             val chip =
-                TextView(context).apply {
+                TextView(
+                    context
+                ).apply {
 
                     textSize =
                         13f
@@ -648,7 +689,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     }
                 }
 
-            suggestionChips.add(chip)
+            suggestionChips.add(
+                chip
+            )
 
             row.addView(
                 chip,
@@ -670,7 +713,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     private fun buildQwertyContainer() {
 
         qwertyContainer =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     VERTICAL
@@ -717,7 +762,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     ) {
 
         val row =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     HORIZONTAL
@@ -742,6 +789,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     1f
                 ).apply {
+
                     setMargins(
                         dp(1),
                         dp(1),
@@ -752,7 +800,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             )
         }
 
-        parent.addView(row)
+        parent.addView(
+            row
+        )
     }
 
     private fun buildRow(
@@ -762,7 +812,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     ) {
 
         val row =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     HORIZONTAL
@@ -797,6 +849,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     1f
                 ).apply {
+
                     setMargins(
                         dp(1),
                         dp(1),
@@ -807,7 +860,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             )
         }
 
-        parent.addView(row)
+        parent.addView(
+            row
+        )
     }
 
     private fun buildRow3WithShiftAndBackspace(
@@ -815,7 +870,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     ) {
 
         val row =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     HORIZONTAL
@@ -848,10 +905,10 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
 
                 setOnClickListener {
 
-                    /*
-                     * The IME owns the actual shift state.
-                     * This prevents the previous double-toggle bug.
-                     */
+                    setShiftState(
+                        !shiftEnabled
+                    )
+
                     listener?.onShiftToggle()
                 }
             }
@@ -867,6 +924,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 1.5f
             ).apply {
+
                 setMargins(
                     dp(1),
                     dp(1),
@@ -888,6 +946,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     1f
                 ).apply {
+
                     setMargins(
                         dp(1),
                         dp(1),
@@ -929,6 +988,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 1.5f
             ).apply {
+
                 setMargins(
                     dp(1),
                     dp(1),
@@ -938,7 +998,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
         )
 
-        parent.addView(row)
+        parent.addView(
+            row
+        )
     }
 
     private fun buildBottomRow(
@@ -946,7 +1008,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     ) {
 
         val row =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     HORIZONTAL
@@ -960,7 +1024,10 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
 
         row.addView(
-            makeCharKey(",", false),
+            makeCharKey(
+                ",",
+                false
+            ),
             LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -969,7 +1036,10 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         row.addView(
-            makeCharKey("?", false),
+            makeCharKey(
+                "?",
+                false
+            ),
             LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -978,17 +1048,16 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         row.addView(
-            makeCharKey("!", false),
+            makeCharKey(
+                "!",
+                false
+            ),
             LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 1f
             )
         )
-
-        // ---------------------------------------------------------------------
-        // SPACE
-        // ---------------------------------------------------------------------
 
         val spaceButton =
             Button(context).apply {
@@ -1024,6 +1093,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 3f
             ).apply {
+
                 setMargins(
                     dp(1),
                     dp(1),
@@ -1034,7 +1104,10 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         row.addView(
-            makeCharKey(".", false),
+            makeCharKey(
+                ".",
+                false
+            ),
             LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1073,6 +1146,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 1.5f
             ).apply {
+
                 setMargins(
                     dp(1),
                     dp(1),
@@ -1082,7 +1156,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
         )
 
-        parent.addView(row)
+        parent.addView(
+            row
+        )
     }
 
     // =========================================================================
@@ -1101,8 +1177,11 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     label
 
                 textSize =
-                    if (isLetter) 15f
-                    else 14f
+                    if (isLetter) {
+                        15f
+                    } else {
+                        14f
+                    }
 
                 isAllCaps =
                     false
@@ -1139,13 +1218,17 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 }
             }
 
-        registerKeyButton(btn)
+        registerKeyButton(
+            btn
+        )
 
         if (isLetter) {
             letterButtons.add(btn)
         }
 
-        attachKeyPreview(btn)
+        attachKeyPreview(
+            btn
+        )
 
         return btn
     }
@@ -1158,18 +1241,22 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             !allKeyButtons.contains(button)
         ) {
 
-            allKeyButtons.add(button)
+            allKeyButtons.add(
+                button
+            )
         }
     }
 
     // =========================================================================
-    // SYMBOL KEYBOARD
+    // SYMBOLS KEYBOARD
     // =========================================================================
 
-    private fun buildSymbolsPanel() {
+    private fun buildSymbolsContainer() {
 
-        symbolsPanel =
-            LinearLayout(context).apply {
+        symbolsContainer =
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     VERTICAL
@@ -1185,151 +1272,65 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     GONE
             }
 
-        addView(symbolsPanel)
+        addView(
+            symbolsContainer
+        )
 
-        // ---------------------------------------------------------------------
-        // SYMBOL CATEGORY TABS
-        // ---------------------------------------------------------------------
+        /*
+         * First symbol row.
+         */
+        buildSymbolRow(
+            symbolsContainer,
+            symbolRow1
+        )
 
-        val tabsScroll =
-            HorizontalScrollView(context).apply {
+        /*
+         * Second symbol row.
+         */
+        buildSymbolRow(
+            symbolsContainer,
+            symbolRow2
+        )
 
-                isHorizontalScrollBarEnabled =
-                    false
+        /*
+         * Third symbol row.
+         */
+        buildSymbolRow(
+            symbolsContainer,
+            symbolRow3
+        )
 
-                layoutParams =
-                    LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        dp(38)
-                    )
-            }
+        /*
+         * Fourth symbol row.
+         */
+        buildSymbolRow(
+            symbolsContainer,
+            symbolRow4
+        )
 
-        val tabsRow =
-            LinearLayout(context).apply {
+        /*
+         * Bottom control row.
+         */
+        buildSymbolsBottomRow(
+            symbolsContainer
+        )
+    }
+
+    private fun buildSymbolRow(
+        parent: ViewGroup,
+        symbols: Array<String>
+    ) {
+
+        val row =
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     HORIZONTAL
 
                 gravity =
-                    Gravity.CENTER_VERTICAL
-            }
-
-        val abcButton =
-            Button(context).apply {
-
-                text =
-                    "ABC"
-
-                textSize =
-                    12f
-
-                isAllCaps =
-                    false
-
-                minimumWidth =
-                    0
-
-                minimumHeight =
-                    0
-
-                setPadding(
-                    dp(12),
-                    dp(2),
-                    dp(12),
-                    dp(2)
-                )
-
-                setOnClickListener {
-                    showQwerty()
-                }
-            }
-
-        registerKeyButton(
-            abcButton
-        )
-
-        tabsRow.addView(
-            abcButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply {
-                marginEnd =
-                    dp(6)
-            }
-        )
-
-        SymbolCategory.entries.forEach { category ->
-
-            val tab =
-                Button(context).apply {
-
-                    text =
-                        category.label
-
-                    textSize =
-                        11f
-
-                    isAllCaps =
-                        false
-
-                    minimumWidth =
-                        0
-
-                    minimumHeight =
-                        0
-
-                    setPadding(
-                        dp(10),
-                        dp(2),
-                        dp(10),
-                        dp(2)
-                    )
-
-                    setOnClickListener {
-
-                        currentSymbolCategory =
-                            category
-
-                        updateSymbolTabHighlight()
-
-                        renderSymbolGrid(
-                            category
-                        )
-                    }
-                }
-
-            symbolCategoryTabs[category] =
-                tab
-
-            registerKeyButton(tab)
-
-            tabsRow.addView(
-                tab,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                ).apply {
-                    marginEnd =
-                        dp(4)
-                }
-            )
-        }
-
-        tabsScroll.addView(
-            tabsRow
-        )
-
-        symbolsPanel.addView(
-            tabsScroll
-        )
-
-        // ---------------------------------------------------------------------
-        // SYMBOL GRID
-        // ---------------------------------------------------------------------
-
-        val gridScroll =
-            ScrollView(context).apply {
+                    Gravity.CENTER
 
                 layoutParams =
                     LinearLayout.LayoutParams(
@@ -1339,174 +1340,43 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     )
             }
 
-        symbolsGridContainer =
-            LinearLayout(context).apply {
+        symbols.forEach { symbol ->
 
-                orientation =
-                    VERTICAL
-            }
+            row.addView(
+                makeSymbolKey(symbol),
+                LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    1f
+                ).apply {
 
-        gridScroll.addView(
-            symbolsGridContainer
-        )
-
-        symbolsPanel.addView(
-            gridScroll
-        )
-    }
-
-    private fun toggleSymbolsPanel() {
-
-        if (
-            symbolsPanel.visibility ==
-            VISIBLE
-        ) {
-
-            showQwerty()
-
-        } else {
-
-            showSymbolsPanel()
+                    setMargins(
+                        dp(1),
+                        dp(1),
+                        dp(1),
+                        dp(1)
+                    )
+                }
+            )
         }
-    }
 
-    private fun showSymbolsPanel() {
-
-        hideKeyPreview()
-
-        qwertyContainer.visibility =
-            GONE
-
-        emojiPanel.visibility =
-            GONE
-
-        symbolsPanel.visibility =
-            VISIBLE
-
-        updateSymbolTabHighlight()
-
-        renderSymbolGrid(
-            currentSymbolCategory
+        parent.addView(
+            row
         )
-    }
-
-    private fun renderSymbolGrid(
-        category: SymbolCategory
-    ) {
-
-        symbolsGridContainer.removeAllViews()
-
-        val symbols =
-            when (category) {
-
-                SymbolCategory.COMMON ->
-                    commonSymbols
-
-                SymbolCategory.MATH ->
-                    mathSymbols
-
-                SymbolCategory.BRACKETS ->
-                    bracketSymbols
-
-                SymbolCategory.CURRENCY ->
-                    currencySymbols
-
-                SymbolCategory.ARROWS ->
-                    arrowSymbols
-
-                SymbolCategory.EXTRA ->
-                    extraSymbols
-            }
-
-        val perRow =
-            8
-
-        symbols
-            .chunked(perRow)
-            .forEach { rowSymbols ->
-
-                val row =
-                    LinearLayout(context).apply {
-
-                        orientation =
-                            HORIZONTAL
-
-                        layoutParams =
-                            LinearLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                0,
-                                1f
-                            )
-                    }
-
-                rowSymbols.forEach { symbol ->
-
-                    val button =
-                        makeSymbolKey(
-                            symbol
-                        )
-
-                    row.addView(
-                        button,
-                        LinearLayout.LayoutParams(
-                            0,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            1f
-                        ).apply {
-
-                            setMargins(
-                                dp(1),
-                                dp(1),
-                                dp(1),
-                                dp(1)
-                            )
-                        }
-                    )
-                }
-
-                /*
-                 * Keep incomplete final rows balanced.
-                 */
-                repeat(
-                    perRow - rowSymbols.size
-                ) {
-
-                    val spacer =
-                        View(context)
-
-                    row.addView(
-                        spacer,
-                        LinearLayout.LayoutParams(
-                            0,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            1f
-                        )
-                    )
-                }
-
-                symbolsGridContainer.addView(
-                    row
-                )
-            }
-
-        applyTheme()
     }
 
     private fun makeSymbolKey(
         symbol: String
     ): Button {
 
-        val button =
+        val btn =
             Button(context).apply {
 
                 text =
                     symbol
 
                 textSize =
-                    if (symbol.length > 1)
-                        13f
-                    else
-                        17f
+                    16f
 
                 isAllCaps =
                     false
@@ -1534,10 +1404,11 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     ) {
 
                         /*
-                         * KeyboardActionListener currently
-                         * accepts one Char. Every symbol in
-                         * this keyboard is therefore sent as
-                         * one Unicode character.
+                         * Only the first character is sent because
+                         * onCharKey() accepts a Char.
+                         *
+                         * All symbols in this keyboard are one
+                         * character long.
                          */
                         listener?.onCharKey(
                             symbol[0]
@@ -1547,31 +1418,317 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
 
         registerKeyButton(
-            button
+            btn
         )
 
         attachKeyPreview(
-            button
+            btn
         )
 
-        return button
+        return btn
     }
 
-    private fun updateSymbolTabHighlight() {
+    private fun buildSymbolsBottomRow(
+        parent: ViewGroup
+    ) {
 
-        symbolCategoryTabs.forEach {
-            (category, button) ->
+        val row =
+            LinearLayout(
+                context
+            ).apply {
 
-            button.alpha =
-                if (
-                    category ==
-                    currentSymbolCategory
-                ) {
-                    1f
-                } else {
-                    0.6f
+                orientation =
+                    HORIZONTAL
+
+                layoutParams =
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        0,
+                        1f
+                    )
+            }
+
+        /*
+         * ABC button.
+         */
+        val abcButton =
+            Button(context).apply {
+
+                text =
+                    "ABC"
+
+                textSize =
+                    12f
+
+                isAllCaps =
+                    false
+
+                minimumWidth =
+                    0
+
+                minimumHeight =
+                    0
+
+                setOnClickListener {
+                    showQwerty()
                 }
-        }
+            }
+
+        registerKeyButton(
+            abcButton
+        )
+
+        row.addView(
+            abcButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                1.5f
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
+        )
+
+        /*
+         * Comma.
+         */
+        row.addView(
+            makeSymbolKey(","),
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                1f
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
+        )
+
+        /*
+         * Space.
+         */
+        val spaceButton =
+            Button(context).apply {
+
+                text =
+                    "space"
+
+                textSize =
+                    12f
+
+                isAllCaps =
+                    false
+
+                minimumWidth =
+                    0
+
+                minimumHeight =
+                    0
+
+                setOnClickListener {
+                    listener?.onSpace()
+                }
+            }
+
+        registerKeyButton(
+            spaceButton
+        )
+
+        row.addView(
+            spaceButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                3f
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
+        )
+
+        /*
+         * Period.
+         */
+        row.addView(
+            makeSymbolKey("."),
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                1f
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
+        )
+
+        /*
+         * Backspace.
+         */
+        val backspaceButton =
+            Button(context).apply {
+
+                text =
+                    "\u232B"
+
+                textSize =
+                    16f
+
+                minimumWidth =
+                    0
+
+                minimumHeight =
+                    0
+
+                setOnClickListener {
+                    listener?.onBackspace()
+                }
+            }
+
+        registerKeyButton(
+            backspaceButton
+        )
+
+        row.addView(
+            backspaceButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                1.5f
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
+        )
+
+        /*
+         * Enter.
+         */
+        val enterButton =
+            Button(context).apply {
+
+                text =
+                    "\u23CE"
+
+                textSize =
+                    16f
+
+                minimumWidth =
+                    0
+
+                minimumHeight =
+                    0
+
+                setOnClickListener {
+                    listener?.onEnter()
+                }
+            }
+
+        registerKeyButton(
+            enterButton
+        )
+
+        row.addView(
+            enterButton,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                1.5f
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
+        )
+
+        parent.addView(
+            row
+        )
+    }
+
+    // =========================================================================
+    // KEYBOARD SWITCHING
+    // =========================================================================
+
+    private fun showSymbols() {
+
+        hideKeyPreview()
+
+        /*
+         * Hide QWERTY.
+         */
+        qwertyContainer.visibility =
+            GONE
+
+        /*
+         * Hide emoji.
+         */
+        emojiPanel.visibility =
+            GONE
+
+        /*
+         * Show symbols.
+         */
+        symbolsContainer.visibility =
+            VISIBLE
+
+        symbolsToggleButton.text =
+            "ABC"
+    }
+
+    private fun showQwerty() {
+
+        hideKeyPreview()
+
+        /*
+         * Hide symbols.
+         */
+        symbolsContainer.visibility =
+            GONE
+
+        /*
+         * Hide emoji.
+         */
+        emojiPanel.visibility =
+            GONE
+
+        /*
+         * Show QWERTY.
+         */
+        qwertyContainer.visibility =
+            VISIBLE
+
+        symbolsToggleButton.text =
+            "123"
     }
 
     // =========================================================================
@@ -1772,7 +1929,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     private fun buildEmojiPanel() {
 
         emojiPanel =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     VERTICAL
@@ -1793,7 +1952,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         val tabsScroll =
-            HorizontalScrollView(context).apply {
+            HorizontalScrollView(
+                context
+            ).apply {
 
                 isHorizontalScrollBarEnabled =
                     false
@@ -1806,7 +1967,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
 
         val tabsRow =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     HORIZONTAL
@@ -1815,6 +1978,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     Gravity.CENTER_VERTICAL
             }
 
+        /*
+         * Back to QWERTY from emoji.
+         */
         val backButton =
             Button(context).apply {
 
@@ -1855,6 +2021,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             ).apply {
+
                 marginEnd =
                     dp(6)
             }
@@ -1913,6 +2080,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 ).apply {
+
                     marginEnd =
                         dp(4)
                 }
@@ -1928,7 +2096,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         val gridScroll =
-            ScrollView(context).apply {
+            ScrollView(
+                context
+            ).apply {
 
                 layoutParams =
                     LinearLayout.LayoutParams(
@@ -1939,7 +2109,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
 
         emojiGridContainer =
-            LinearLayout(context).apply {
+            LinearLayout(
+                context
+            ).apply {
 
                 orientation =
                     VERTICAL
@@ -1976,31 +2148,20 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         qwertyContainer.visibility =
             GONE
 
-        symbolsPanel.visibility =
+        symbolsContainer.visibility =
             GONE
 
         emojiPanel.visibility =
             VISIBLE
+
+        symbolsToggleButton.text =
+            "123"
 
         updateEmojiTabHighlight()
 
         renderEmojiGrid(
             currentEmojiCategory
         )
-    }
-
-    private fun showQwerty() {
-
-        hideKeyPreview()
-
-        emojiPanel.visibility =
-            GONE
-
-        symbolsPanel.visibility =
-            GONE
-
-        qwertyContainer.visibility =
-            VISIBLE
     }
 
     private fun updateEmojiTabHighlight() {
@@ -2086,63 +2247,67 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         val perRow =
             8
 
-        emoji.chunked(perRow)
-            .forEach { rowEmoji ->
+        emoji.chunked(
+            perRow
+        ).forEach { rowEmoji ->
 
-                val row =
-                    LinearLayout(context).apply {
+            val row =
+                LinearLayout(
+                    context
+                ).apply {
 
-                        orientation =
-                            HORIZONTAL
+                    orientation =
+                        HORIZONTAL
 
-                        layoutParams =
-                            LinearLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                dp(42)
-                            )
-                    }
-
-                rowEmoji.forEach {
-                    emojiValue ->
-
-                    val cell =
-                        TextView(context).apply {
-
-                            text =
-                                emojiValue
-
-                            textSize =
-                                20f
-
-                            gravity =
-                                Gravity.CENTER
-
-                            setTextColor(
-                                currentKeyTextColor
-                            )
-
-                            setOnClickListener {
-
-                                listener?.onEmojiSelected(
-                                    emojiValue
-                                )
-                            }
-                        }
-
-                    row.addView(
-                        cell,
+                    layoutParams =
                         LinearLayout.LayoutParams(
-                            0,
                             ViewGroup.LayoutParams.MATCH_PARENT,
-                            1f
+                            dp(42)
                         )
-                    )
                 }
 
-                emojiGridContainer.addView(
-                    row
+            rowEmoji.forEach { emojiValue ->
+
+                val cell =
+                    TextView(
+                        context
+                    ).apply {
+
+                        text =
+                            emojiValue
+
+                        textSize =
+                            20f
+
+                        gravity =
+                            Gravity.CENTER
+
+                        setTextColor(
+                            currentKeyTextColor
+                        )
+
+                        setOnClickListener {
+
+                            listener?.onEmojiSelected(
+                                emojiValue
+                            )
+                        }
+                    }
+
+                row.addView(
+                    cell,
+                    LinearLayout.LayoutParams(
+                        0,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        1f
+                    )
                 )
             }
+
+            emojiGridContainer.addView(
+                row
+            )
+        }
     }
 
     // =========================================================================
@@ -2237,24 +2402,16 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             accent
         )
 
-        symbolCategoryTabs[
-            currentSymbolCategory
-        ]?.setTextColor(
-            accent
-        )
-
-        // ---------------------------------------------------------------------
-        // EMOJI TEXT
-        // ---------------------------------------------------------------------
-
+        /*
+         * Update emoji text colors.
+         */
         for (
             i in 0 until
                 emojiGridContainer.childCount
         ) {
 
             val row =
-                emojiGridContainer
-                    .getChildAt(i)
+                emojiGridContainer.getChildAt(i)
 
             if (
                 row is ViewGroup
@@ -2280,53 +2437,14 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
         }
 
-        // ---------------------------------------------------------------------
-        // SYMBOL TEXT
-        // ---------------------------------------------------------------------
-
-        for (
-            i in 0 until
-                symbolsGridContainer.childCount
-        ) {
-
-            val row =
-                symbolsGridContainer
-                    .getChildAt(i)
-
-            if (
-                row is ViewGroup
-            ) {
-
-                for (
-                    j in 0 until
-                        row.childCount
-                ) {
-
-                    val child =
-                        row.getChildAt(j)
-
-                    if (
-                        child is TextView
-                    ) {
-
-                        child.setTextColor(
-                            keyText
-                        )
-                    }
-                }
-            }
-        }
-
-        // ---------------------------------------------------------------------
-        // HEIGHT
-        // ---------------------------------------------------------------------
-
+        /*
+         * Maintain the existing keyboard height.
+         */
         val scale =
-            heightScale
-                .coerceIn(
-                    0.8f,
-                    1.3f
-                )
+            heightScale.coerceIn(
+                0.8f,
+                1.3f
+            )
 
         val baseHeightDp =
             222
@@ -2338,16 +2456,16 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         dp(baseHeightDp)
                     )
-                ).apply {
+            ).apply {
 
-                    height =
-                        dp(
-                            (
-                                baseHeightDp *
-                                    scale
-                                ).toInt()
-                        )
-                }
+                height =
+                    dp(
+                        (
+                            baseHeightDp *
+                                scale
+                        ).toInt()
+                    )
+            }
 
         requestLayout()
     }
@@ -2356,7 +2474,10 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
     // KEY STYLE
     // =========================================================================
 
-    /** Gives every keyboard key an individual border, rounded corners and pressed state. */
+    /**
+     * Gives every keyboard key an individual border,
+     * rounded corners and pressed state.
+     */
     private fun applyKeyStyle(
         button: Button,
         fillColor: Int,
@@ -2492,8 +2613,8 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     (
                         Color.red(to) -
                             Color.red(from)
-                        ) * t
-                ).toInt()
+                    ) * t
+            ).toInt()
 
         val g =
             (
@@ -2501,8 +2622,8 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     (
                         Color.green(to) -
                             Color.green(from)
-                        ) * t
-                ).toInt()
+                    ) * t
+            ).toInt()
 
         val b =
             (
@@ -2510,8 +2631,8 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     (
                         Color.blue(to) -
                             Color.blue(from)
-                        ) * t
-                ).toInt()
+                    ) * t
+            ).toInt()
 
         return Color.rgb(
             r,
