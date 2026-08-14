@@ -918,16 +918,15 @@ smartSuggestionEngine =
         return
     }
 
-    // TEMPORARY UI TEST
+    // Temporary test to confirm the suggestion bar works.
     val testSuggestions = listOf(
-        "${prefix}nk",
-        "${prefix}nks",
-        "${prefix}nky"
+        prefix + "nk",
+        prefix + "nks",
+        prefix + "nful"
     )
 
     keyboardView.setSuggestions(testSuggestions)
 }
-
         val suggestions =
             smartSuggestionEngine.suggest(
                 prefix = prefix,
