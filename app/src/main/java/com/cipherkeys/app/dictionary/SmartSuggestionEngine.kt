@@ -7,57 +7,66 @@ package com.cipherkeys.app.dictionary
  *
  * 1. Normal dictionary completions
  * 2. User-learned vocabulary
- * 3. Context predictions
- * 4. Personal usage frequency
- *
- * The engine ranks candidates and returns the
- * strongest suggestions for the keyboard.
+ * 3. Word-to-word context predictions
+ * 4. Phrase-level predictions
+ * 5. Personal usage frequency
  *
  * Everything remains local to the device.
  */
 class SmartSuggestionEngine(
     private val dictionary: Dictionary,
-    private val contextPredictor: ContextPredictor
+    private val contextPredictor: ContextPredictor,
+    private val phrasePredictor: PhrasePredictor
 ) {
 
     /**
-     * Returns the best suggestions for the current
-     * word prefix.
+     * Returns the strongest suggestions for the
+     * currently typed word.
      *
-     * [prefix]
-     *      The characters currently being typed.
+     * Example:
      *
-     * [previousWord]
-     *      The most recently completed word.
+     * Previous words:
+     *     "thank you"
+     *
+     * Current prefix:
+     *     "f"
+     *
+     * Possible result:
+     *
+     *     for
+     *     from
+     *     ...
      */
     fun suggest(
         prefix: String,
-        previousWord: String,
+        previousWords: List<String>,
         limit: Int = 3
     ): List<String> {
 
         val normalizedPrefix =
             prefix.trim().lowercase()
 
-        val normalizedPrevious =
-            previousWord.trim().lowercase()
+        val normalizedWords =
+            previousWords
+                .map {
+                    it.trim().lowercase()
+                }
+                .filter {
+                    it.isNotBlank()
+                }
 
         /*
          * -----------------------------------------------------
-         * 1. Dictionary completions
+         * 1. Dictionary candidates
          * -----------------------------------------------------
-         *
-         * Ask the dictionary for more candidates than we
-         * ultimately display.
          */
         val dictionaryCandidates =
             if (normalizedPrefix.isNotBlank()) {
 
-                dictionary
-                    .suggestCompletions(
-                        normalizedPrefix,
-                        limit = 10
-                    )
+                dictionary.suggestCompletions(
+                    normalizedPrefix,
+                    limit = 10
+                )
 
             } else {
 
@@ -66,34 +75,57 @@ class SmartSuggestionEngine(
 
         /*
          * -----------------------------------------------------
-         * 2. Context predictions
+         * 2. Word-level context candidates
+         * -----------------------------------------------------
+         */
+        val previousWord =
+            normalizedWords.lastOrNull()
+                ?: ""
+
+        val contextCandidates =
+            if (previousWord.isNotBlank()) {
+
+                contextPredictor.suggestNextWords(
+                    previousWord,
+                    limit = 10
+                )
+
+            } else {
+
+                emptyList()
+            }
+
+        /*
+         * -----------------------------------------------------
+         * 3. Phrase-level candidates
          * -----------------------------------------------------
          *
-         * These represent words commonly used after the
-         * previous word.
+         * We check increasingly useful phrase sizes.
+         *
+         * Example:
+         *
+         * "I am going"
+         *
+         * checks:
+         *
+         * "going"
+         * "am going"
+         * "I am going"
          */
-        val contextCandidates =
-            if (normalizedPrevious.isNotBlank()) {
-
-                contextPredictor
-                    .suggestNextWords(
-                        normalizedPrevious,
-                        limit = 10
-                    )
-
-            } else {
-
-                emptyList()
-            }
+        val phraseCandidates =
+            getPhraseCandidates(
+                normalizedWords
+            )
 
         /*
          * -----------------------------------------------------
-         * 3. Combine candidates
+         * 4. Combine everything
          * -----------------------------------------------------
          */
         val candidates =
             (
-                contextCandidates +
+                phraseCandidates +
+                        contextCandidates +
                         dictionaryCandidates
                 )
                 .map {
@@ -101,6 +133,12 @@ class SmartSuggestionEngine(
                 }
                 .filter {
                     it.isNotBlank()
+                }
+                .filter {
+                    normalizedPrefix.isBlank() ||
+                            it.startsWith(
+                                normalizedPrefix
+                            )
                 }
                 .distinct()
 
@@ -110,20 +148,17 @@ class SmartSuggestionEngine(
 
         /*
          * -----------------------------------------------------
-         * 4. Rank candidates
+         * 5. Rank candidates
          * -----------------------------------------------------
-         *
-         * Higher score = stronger suggestion.
          */
         return candidates
             .map { candidate ->
 
-                candidate to
-                        scoreCandidate(
-                            candidate,
-                            normalizedPrefix,
-                            normalizedPrevious
-                        )
+                candidate to scoreCandidate(
+                    candidate = candidate,
+                    prefix = normalizedPrefix,
+                    previousWords = normalizedWords
+                )
             }
             .sortedByDescending {
                 it.second
@@ -135,20 +170,91 @@ class SmartSuggestionEngine(
     }
 
     /**
-     * Calculate a suggestion score.
+     * Backwards-compatible overload.
      *
-     * The scoring system intentionally favors:
-     *
-     * 1. Exact prefix matches
-     * 2. Context predictions
-     * 3. Personal vocabulary
-     * 4. Frequently used personal words
-     * 5. Shorter completions
+     * This allows older CipherKeys code that only
+     * provides one previous word to continue working.
+     */
+    fun suggest(
+        prefix: String,
+        previousWord: String,
+        limit: Int = 3
+    ): List<String> {
+
+        val previous =
+            previousWord
+                .trim()
+                .lowercase()
+
+        val words =
+            if (previous.isBlank()) {
+                emptyList()
+            } else {
+                listOf(previous)
+            }
+
+        return suggest(
+            prefix = prefix,
+            previousWords = words,
+            limit = limit
+        )
+    }
+
+    /**
+     * Returns phrase predictions using the most
+     * recent 1–3 words.
+     */
+    private fun getPhraseCandidates(
+        previousWords: List<String>
+    ): List<String> {
+
+        if (previousWords.isEmpty()) {
+            return emptyList()
+        }
+
+        val results =
+            mutableListOf<String>()
+
+        /*
+         * Prefer longer phrases because they contain
+         * more context.
+         */
+        val maximumPhraseLength =
+            minOf(
+                3,
+                previousWords.size
+            )
+
+        for (
+            length in maximumPhraseLength downTo 1
+        ) {
+
+            val start =
+                previousWords.size - length
+
+            val phrase =
+                previousWords.subList(
+                    start,
+                    previousWords.size
+                )
+
+            results +=
+                phrasePredictor.suggestNextWords(
+                    phrase,
+                    limit = 10
+                )
+        }
+
+        return results.distinct()
+    }
+
+    /**
+     * Calculates the strength of a candidate.
      */
     private fun scoreCandidate(
         candidate: String,
         prefix: String,
-        previousWord: String
+        previousWords: List<String>
     ): Int {
 
         var score = 0
@@ -161,20 +267,18 @@ class SmartSuggestionEngine(
         if (prefix.isNotBlank()) {
 
             if (
-                candidate.startsWith(prefix)
+                !candidate.startsWith(
+                    prefix
+                )
             ) {
-                score += 100
-            } else {
-                /*
-                 * A context prediction that doesn't match
-                 * the characters currently typed should not
-                 * normally appear.
-                 */
                 return Int.MIN_VALUE
             }
 
+            score += 100
+
             /*
-             * Exact prefix is not itself a useful suggestion.
+             * Don't suggest the exact word currently
+             * being typed.
              */
             if (candidate == prefix) {
                 score -= 50
@@ -183,10 +287,25 @@ class SmartSuggestionEngine(
 
         /*
          * -----------------------------------------------------
-         * Context relevance
+         * Phrase relevance
          * -----------------------------------------------------
          */
-        if (previousWord.isNotBlank()) {
+        score += phraseScore(
+            candidate,
+            previousWords
+        )
+
+        /*
+         * -----------------------------------------------------
+         * Word-level context
+         * -----------------------------------------------------
+         */
+        val previousWord =
+            previousWords.lastOrNull()
+
+        if (
+            !previousWord.isNullOrBlank()
+        ) {
 
             val contextWords =
                 contextPredictor
@@ -196,11 +315,9 @@ class SmartSuggestionEngine(
                     )
 
             if (
-                contextWords.contains(
-                    candidate
-                )
+                candidate in contextWords
             ) {
-                score += 80
+                score += 60
             }
         }
 
@@ -215,19 +332,12 @@ class SmartSuggestionEngine(
             )
         ) {
 
-            score += 60
-
-            /*
-             * Frequently used personal words get an
-             * additional advantage.
-             */
-            val usage =
-                dictionary.usageCount(
-                    candidate
-                )
+            score += 50
 
             score += minOf(
-                usage,
+                dictionary.usageCount(
+                    candidate
+                ),
                 40
             )
         }
@@ -237,7 +347,7 @@ class SmartSuggestionEngine(
          * Word length
          * -----------------------------------------------------
          *
-         * Slight preference for shorter completions.
+         * Small preference for shorter completions.
          */
         score -= minOf(
             candidate.length,
@@ -248,10 +358,144 @@ class SmartSuggestionEngine(
     }
 
     /**
+     * Gives additional weight to predictions learned
+     * from longer phrases.
+     *
+     * 3-word phrase = strongest
+     * 2-word phrase = medium
+     * 1-word phrase = basic context
+     */
+    private fun phraseScore(
+        candidate: String,
+        previousWords: List<String>
+    ): Int {
+
+        if (previousWords.isEmpty()) {
+            return 0
+        }
+
+        var score = 0
+
+        val maximumPhraseLength =
+            minOf(
+                3,
+                previousWords.size
+            )
+
+        for (
+            length in maximumPhraseLength downTo 1
+        ) {
+
+            val start =
+                previousWords.size - length
+
+            val phrase =
+                previousWords.subList(
+                    start,
+                    previousWords.size
+                )
+
+            val predictions =
+                phrasePredictor
+                    .suggestNextWords(
+                        phrase,
+                        limit = 20
+                    )
+
+            if (
+                candidate in predictions
+            ) {
+
+                when (length) {
+
+                    3 -> score += 150
+
+                    2 -> score += 110
+
+                    1 -> score += 40
+                }
+
+                /*
+                 * Longer context already provides
+                 * stronger evidence, so don't keep
+                 * stacking the same relationship.
+                 */
+                break
+            }
+        }
+
+        return score
+    }
+
+    /**
      * Returns context-only predictions.
      *
-     * Used when the user has just typed a space and
+     * Used after the user has typed a space and
      * hasn't started the next word yet.
+     */
+    fun suggestContext(
+        previousWords: List<String>,
+        limit: Int = 3
+    ): List<String> {
+
+        if (previousWords.isEmpty()) {
+            return emptyList()
+        }
+
+        val normalizedWords =
+            previousWords
+                .map {
+                    it.trim().lowercase()
+                }
+                .filter {
+                    it.isNotBlank()
+                }
+
+        if (normalizedWords.isEmpty()) {
+            return emptyList()
+        }
+
+        val phraseCandidates =
+            getPhraseCandidates(
+                normalizedWords
+            )
+
+        val previousWord =
+            normalizedWords.last()
+
+        val contextCandidates =
+            contextPredictor
+                .suggestNextWords(
+                    previousWord,
+                    limit = limit * 3
+                )
+
+        val candidates =
+            (
+                phraseCandidates +
+                        contextCandidates
+                )
+                .distinct()
+
+        return candidates
+            .map { word ->
+
+                word to contextScore(
+                    word,
+                    normalizedWords
+                )
+            }
+            .sortedByDescending {
+                it.second
+            }
+            .take(limit)
+            .map {
+                it.first
+            }
+    }
+
+    /**
+     * Backwards-compatible context method.
      */
     fun suggestContext(
         previousWord: String,
@@ -267,33 +511,35 @@ class SmartSuggestionEngine(
             return emptyList()
         }
 
-        return contextPredictor
-            .suggestNextWords(
-                normalized,
-                limit = limit * 3
-            )
-            .distinct()
-            .map {
-                it to contextScore(it)
-            }
-            .sortedByDescending {
-                it.second
-            }
-            .take(limit)
-            .map {
-                it.first
-            }
+        return suggestContext(
+            previousWords = listOf(
+                normalized
+            ),
+            limit = limit
+        )
     }
 
     /**
-     * Score a context-only prediction.
+     * Scores a context-only candidate.
      */
     private fun contextScore(
-        word: String
+        word: String,
+        previousWords: List<String>
     ): Int {
 
         var score = 100
 
+        /*
+         * Phrase intelligence.
+         */
+        score += phraseScore(
+            word,
+            previousWords
+        )
+
+        /*
+         * Personal vocabulary.
+         */
         if (
             dictionary.isLearnedWord(
                 word
@@ -303,11 +549,16 @@ class SmartSuggestionEngine(
             score += 50
 
             score += minOf(
-                dictionary.usageCount(word),
+                dictionary.usageCount(
+                    word
+                ),
                 40
             )
         }
 
+        /*
+         * Slight preference for shorter words.
+         */
         score -= minOf(
             word.length,
             20
