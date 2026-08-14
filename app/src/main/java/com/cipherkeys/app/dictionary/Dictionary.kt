@@ -1,16 +1,14 @@
 package com.cipherkeys.app.dictionary
 
 /**
- * Everything CipherKeys needs from a word source.
+ * Everything the CipherKeys suggestion system needs from a word source.
  *
- * The dictionary supports:
+ * The dictionary can contain:
  *
- * - Normal English words
- * - Word completions
- * - Spelling corrections
- * - User-learned words
- * - Personal vocabulary
- * - Contractions such as don't, can't, wouldn't, etc.
+ * 1. Bundled English words
+ * 2. User-learned words
+ * 3. Contractions such as don't, can't, wouldn't
+ * 4. Future language-model words
  */
 interface Dictionary {
 
@@ -21,10 +19,6 @@ interface Dictionary {
 
     /**
      * Returns words beginning with [prefix].
-     *
-     * Example:
-     *
-     * "ciph" -> CipherKeys
      */
     fun suggestCompletions(
         prefix: String,
@@ -40,19 +34,16 @@ interface Dictionary {
     ): List<String>
 
     /**
-     * Teach CipherKeys a word.
+     * Teach the dictionary a new word.
      *
-     * This is what allows the keyboard to learn words
-     * that aren't present in the bundled dictionary.
-     *
-     * Example:
-     *
-     * CipherKeys
-     * KachiArts
-     * crypto
-     * Bigi
+     * This is what allows CipherKeys to learn words
+     * that aren't in the bundled dictionary.
      */
-    fun learnWord(
-        word: String
-    )
+    fun learnWord(word: String)
+
+    /**
+     * Returns true when this word was specifically
+     * learned from the user.
+     */
+    fun isUserLearnedWord(word: String): Boolean
 }
