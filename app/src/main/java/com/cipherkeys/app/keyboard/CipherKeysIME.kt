@@ -117,37 +117,30 @@ class CipherKeysIME :
      *
      * Example:
      *
-     * User types:
-     *
-     * "hello"
-     *
-     * rawWordBuffer = "hello"
+     * hello
      */
     private val rawWordBuffer =
         StringBuilder()
 
     /**
-     * Stores the number of encoded characters generated
+     * Stores how many encoded characters were produced
      * for every raw character.
      *
-     * This is important because one raw character can become
-     * multiple encoded characters.
+     * Example:
+     *
+     * Raw:    a b c
+     * Output: @ 8 (
+     *
+     * lengths: 1, 1, 1
+     *
+     * This becomes important when deleting characters in
+     * encoded keyboard modes.
      */
     private val encodedLengthsPerChar =
         mutableListOf<Int>()
 
     /**
      * Most recently completed word.
-     *
-     * Example:
-     *
-     * "thank you"
-     *
-     * after "thank":
-     * lastCompletedWord = "thank"
-     *
-     * after "you":
-     * lastCompletedWord = "you"
      */
     private var lastCompletedWord: String = ""
 
@@ -169,21 +162,22 @@ class CipherKeysIME :
             )
 
         contextPredictor =
-    ContextPredictor(
-        applicationContext
-    )
+            ContextPredictor(
+                applicationContext
+            )
 
-val phrasePredictor =
-    PhrasePredictor(
-        applicationContext
-    )
+        val phrasePredictor =
+            PhrasePredictor(
+                applicationContext
+            )
 
-smartSuggestionEngine =
-    SmartSuggestionEngine(
-        dictionary,
-        contextPredictor,
-        phrasePredictor
-    )
+        smartSuggestionEngine =
+            SmartSuggestionEngine(
+                dictionary,
+                contextPredictor,
+                phrasePredictor
+            )
+
         recentEmojiStore =
             RecentEmojiStore(
                 applicationContext
@@ -198,9 +192,10 @@ smartSuggestionEngine =
         observeRecentEmoji()
     }
 
-    /**
-     * Observe keyboard settings.
-     */
+    // =========================================================
+    // SETTINGS
+    // =========================================================
+
     private fun observeSettings() {
 
         serviceScope.launch {
@@ -209,11 +204,11 @@ smartSuggestionEngine =
 
                 val mappingsChanged =
                     settings.customMappings !=
-                            currentSettings.customMappings
+                        currentSettings.customMappings
 
                 val backgroundPathChanged =
                     settings.backgroundImagePath !=
-                            currentSettings.backgroundImagePath
+                        currentSettings.backgroundImagePath
 
                 currentSettings =
                     settings
@@ -229,8 +224,10 @@ smartSuggestionEngine =
 
                     backgroundBitmap =
                         settings.backgroundImagePath
-                            ?.let {
-                                decodeBackgroundBitmap(it)
+                            ?.let { path ->
+                                decodeBackgroundBitmap(
+                                    path
+                                )
                             }
                 }
 
@@ -242,9 +239,10 @@ smartSuggestionEngine =
         }
     }
 
-    /**
-     * Observe recently used emoji.
-     */
+    // =========================================================
+    // RECENT EMOJI
+    // =========================================================
+
     private fun observeRecentEmoji() {
 
         serviceScope.launch {
@@ -342,9 +340,6 @@ smartSuggestionEngine =
         return view
     }
 
-    /**
-     * Apply the current theme, size and background.
-     */
     private fun applyCurrentSettingsToKeyboard() {
 
         if (!::keyboardView.isInitialized) {
@@ -411,14 +406,8 @@ smartSuggestionEngine =
             false
         )
 
-        /*
-         * Recover the word before the cursor.
-         */
         recoverPreviousWord()
 
-        /*
-         * Decode existing text when enabled.
-         */
         if (
             currentSettings.autoDecodeEnabled
         ) {
@@ -426,9 +415,6 @@ smartSuggestionEngine =
             decodeExistingFieldText()
         }
 
-        /*
-         * Show context suggestions if possible.
-         */
         updateContextSuggestions()
     }
 
@@ -479,18 +465,11 @@ smartSuggestionEngine =
 
         } else {
 
-            /*
-             * Any non-letter ends the current word.
-             */
             completeCurrentWord()
 
             updateContextSuggestions()
         }
 
-        /*
-         * Normal keyboard shift behavior:
-         * shift automatically turns off after one character.
-         */
         if (shiftEnabled) {
 
             shiftEnabled = false
@@ -501,10 +480,10 @@ smartSuggestionEngine =
         }
     }
 
-    /**
-     * Encode one character according to the
-     * currently selected keyboard mode.
-     */
+    // =========================================================
+    // CHARACTER ENCODING
+    // =========================================================
+
     private fun encodeCharacter(
         char: Char
     ): String {
@@ -559,19 +538,10 @@ smartSuggestionEngine =
 
     override fun onSpace() {
 
-        /*
-         * First attempt autocorrection.
-         */
         maybeAutocorrectBeforeBoundary()
 
-        /*
-         * Finish the current word.
-         */
         completeCurrentWord()
 
-        /*
-         * Commit the actual space.
-         */
         currentInputConnection?.commitText(
             " ",
             1
@@ -579,9 +549,6 @@ smartSuggestionEngine =
 
         performFeedback()
 
-        /*
-         * Show predictions for the next word.
-         */
         updateContextSuggestions()
     }
 
@@ -598,9 +565,10 @@ smartSuggestionEngine =
         val selected =
             ic.getSelectedText(0)
 
-        /*
-         * Delete selected text.
-         */
+        // -----------------------------------------------------
+        // Delete selected text
+        // -----------------------------------------------------
+
         if (
             !selected.isNullOrEmpty()
         ) {
@@ -621,9 +589,10 @@ smartSuggestionEngine =
             return
         }
 
-        /*
-         * Delete a character from the current word.
-         */
+        // -----------------------------------------------------
+        // Delete character from active word
+        // -----------------------------------------------------
+
         if (
             rawWordBuffer.isNotEmpty() &&
             encodedLengthsPerChar.isNotEmpty()
@@ -650,11 +619,10 @@ smartSuggestionEngine =
             return
         }
 
-        /*
-         * There is no active word.
-         *
-         * Delete the previous character from the editor.
-         */
+        // -----------------------------------------------------
+        // No active word
+        // -----------------------------------------------------
+
         ic.deleteSurroundingText(
             1,
             0
@@ -740,10 +708,6 @@ smartSuggestionEngine =
         mode: KeyboardMode
     ) {
 
-        /*
-         * Finish anything currently being typed
-         * before switching mode.
-         */
         completeCurrentWord()
 
         currentMode =
@@ -753,10 +717,6 @@ smartSuggestionEngine =
             mode
         )
 
-        /*
-         * Decode the existing field when the
-         * decode mode is selected.
-         */
         if (
             mode == KeyboardMode.DECODE
         ) {
@@ -788,18 +748,12 @@ smartSuggestionEngine =
             return
         }
 
-        /*
-         * Selecting a suggestion is strong evidence
-         * that this is useful vocabulary.
-         */
+        // Learn selected vocabulary.
         dictionary.learnWord(
             normalizedWord
         )
 
-        /*
-         * Teach the relationship between the previous
-         * word and the selected word.
-         */
+        // Learn previous-word relationship.
         if (
             lastCompletedWord.isNotBlank()
         ) {
@@ -810,39 +764,26 @@ smartSuggestionEngine =
             )
         }
 
-        /*
-         * Replace the currently typed prefix.
-         */
+        // Replace current typed prefix.
         replaceCurrentWord(
             ic,
             normalizedWord
         )
 
-        /*
-         * The selected word becomes the new context.
-         */
+        // Selected word becomes context.
         lastCompletedWord =
             normalizedWord.lowercase()
 
-        /*
-         * Insert a space so the user can immediately
-         * continue typing.
-         */
+        // Add a space automatically.
         ic.commitText(
             " ",
             1
         )
 
-        /*
-         * Clear current typing state.
-         */
         rawWordBuffer.clear()
 
         encodedLengthsPerChar.clear()
 
-        /*
-         * Show the next context predictions.
-         */
         updateContextSuggestions()
 
         performFeedback()
@@ -860,9 +801,6 @@ smartSuggestionEngine =
             currentInputConnection
                 ?: return
 
-        /*
-         * Finish the current word first.
-         */
         completeCurrentWord()
 
         ic.commitText(
@@ -872,9 +810,6 @@ smartSuggestionEngine =
 
         performFeedback()
 
-        /*
-         * Store the emoji as recently used.
-         */
         serviceScope.launch {
 
             recentEmojiStore.addRecent(
@@ -882,9 +817,6 @@ smartSuggestionEngine =
             )
         }
 
-        /*
-         * Emoji does not become a word context.
-         */
         updateContextSuggestions()
     }
 
@@ -893,40 +825,34 @@ smartSuggestionEngine =
     // =========================================================
 
     /**
-     * Update suggestions while the user is typing.
+     * Updates suggestions while the user is typing.
      *
-     * SmartSuggestionEngine combines:
+     * This uses the real SmartSuggestionEngine.
      *
-     * - dictionary completions
-     * - learned vocabulary
-     * - context predictions
-     * - usage frequency
+     * The temporary test suggestions that were causing
+     * the compilation error have been completely removed.
      */
     private fun updateSuggestions() {
 
-    if (!::keyboardView.isInitialized) {
-        return
-    }
+        if (!::keyboardView.isInitialized) {
+            return
+        }
 
-    val prefix = rawWordBuffer
-        .toString()
-        .trim()
-        .lowercase()
+        val prefix =
+            rawWordBuffer
+                .toString()
+                .trim()
+                .lowercase()
 
-    if (prefix.isBlank()) {
-        keyboardView.setSuggestions(emptyList())
-        return
-    }
+        if (prefix.isBlank()) {
 
-    // Temporary test to confirm the suggestion bar works.
-    val testSuggestions = listOf(
-        prefix + "nk",
-        prefix + "nks",
-        prefix + "nful"
-    )
+            keyboardView.setSuggestions(
+                emptyList()
+            )
 
-    keyboardView.setSuggestions(testSuggestions)
-}
+            return
+        }
+
         val suggestions =
             smartSuggestionEngine.suggest(
                 prefix = prefix,
@@ -940,11 +866,11 @@ smartSuggestionEngine =
     }
 
     /**
-     * Show predictions for the next word.
+     * Shows predictions for the next word.
      *
      * Example:
      *
-     * "thank "
+     * thank
      *
      * ->
      *
@@ -952,9 +878,7 @@ smartSuggestionEngine =
      */
     private fun updateContextSuggestions() {
 
-        if (
-            !::keyboardView.isInitialized
-        ) {
+        if (!::keyboardView.isInitialized) {
             return
         }
 
@@ -984,9 +908,6 @@ smartSuggestionEngine =
     // WORD COMPLETION / LEARNING
     // =========================================================
 
-    /**
-     * Complete and learn the current word.
-     */
     private fun completeCurrentWord() {
 
         val word =
@@ -998,17 +919,12 @@ smartSuggestionEngine =
             word.isNotBlank()
         ) {
 
-            /*
-             * Learn the word itself.
-             */
+            // Learn the word.
             dictionary.learnWord(
                 word
             )
 
-            /*
-             * Learn its relationship with the
-             * previous completed word.
-             */
+            // Learn relationship with previous word.
             if (
                 lastCompletedWord.isNotBlank()
             ) {
@@ -1019,9 +935,7 @@ smartSuggestionEngine =
                 )
             }
 
-            /*
-             * This word becomes the new context.
-             */
+            // Current word becomes context.
             lastCompletedWord =
                 word.lowercase()
         }
@@ -1029,9 +943,6 @@ smartSuggestionEngine =
         finalizeWord()
     }
 
-    /**
-     * Clear active word-tracking state.
-     */
     private fun finalizeWord() {
 
         rawWordBuffer.clear()
@@ -1043,10 +954,6 @@ smartSuggestionEngine =
     // AUTOCORRECT
     // =========================================================
 
-    /**
-     * Attempts to correct the current word before
-     * a space is inserted.
-     */
     private fun maybeAutocorrectBeforeBoundary() {
 
         if (
@@ -1055,10 +962,6 @@ smartSuggestionEngine =
             return
         }
 
-        /*
-         * Autocorrection only makes sense when we
-         * are currently writing normal English.
-         */
         if (
             currentMode != KeyboardMode.NORMAL &&
             currentMode != KeyboardMode.DECODE
@@ -1077,9 +980,6 @@ smartSuggestionEngine =
             return
         }
 
-        /*
-         * Already valid -> no correction.
-         */
         if (
             dictionary.isValidWord(
                 word
@@ -1119,10 +1019,10 @@ smartSuggestionEngine =
     // =========================================================
 
     /**
-     * Replace the currently typed raw word.
+     * Replaces the currently typed raw word.
      *
-     * This correctly handles encoded modes where
-     * one raw character may produce multiple characters.
+     * Handles encoded modes where one raw character can
+     * generate multiple output characters.
      */
     private fun replaceCurrentWord(
         ic: InputConnection,
@@ -1157,10 +1057,10 @@ smartSuggestionEngine =
         encodedLengthsPerChar.clear()
     }
 
-    /**
-     * Encode a complete word according to
-     * the currently selected mode.
-     */
+    // =========================================================
+    // WHOLE WORD ENCODING
+    // =========================================================
+
     private fun encodeWholeWord(
         word: String
     ): String {
@@ -1213,9 +1113,6 @@ smartSuggestionEngine =
     // RECOVER PREVIOUS WORD
     // =========================================================
 
-    /**
-     * Recover the word immediately before the cursor.
-     */
     private fun recoverPreviousWord() {
 
         val ic =
@@ -1229,19 +1126,12 @@ smartSuggestionEngine =
             )?.toString()
                 ?: return
 
-        /*
-         * If there is an active unfinished word,
-         * don't overwrite it.
-         */
         if (
             rawWordBuffer.isNotEmpty()
         ) {
             return
         }
 
-        /*
-         * Find the last English-like word.
-         */
         val match =
             Regex(
                 "[A-Za-z']+$"
@@ -1260,9 +1150,6 @@ smartSuggestionEngine =
     // DECODER
     // =========================================================
 
-    /**
-     * Decode existing encoded text around the cursor.
-     */
     private fun decodeExistingFieldText() {
 
         val ic =
@@ -1327,10 +1214,8 @@ smartSuggestionEngine =
             ic.endBatchEdit()
         }
 
-        /*
-         * Recover context after decoding.
-         */
         rawWordBuffer.clear()
+
         encodedLengthsPerChar.clear()
 
         recoverPreviousWord()
@@ -1366,10 +1251,10 @@ smartSuggestionEngine =
         }
     }
 
-    /**
-     * Haptic feedback compatible with old and
-     * newer Android versions.
-     */
+    // =========================================================
+    // VIBRATION
+    // =========================================================
+
     private fun vibrate() {
 
         if (
