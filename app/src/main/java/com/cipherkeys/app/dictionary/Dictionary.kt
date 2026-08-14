@@ -1,24 +1,30 @@
 package com.cipherkeys.app.dictionary
 
 /**
- * Everything the CipherKeys suggestion system needs from a word source.
+ * Unified dictionary interface used by CipherKeys.
  *
- * The dictionary can contain:
+ * The dictionary combines:
  *
  * 1. Bundled English words
- * 2. User-learned words
- * 3. Contractions such as don't, can't, wouldn't
- * 4. Future language-model words
+ * 2. User-learned vocabulary
+ * 3. Word completion
+ * 4. Spell correction
+ *
+ * Implementations must keep learning local to the device.
  */
 interface Dictionary {
 
     /**
-     * Returns true when [word] is recognized.
+     * Returns true when the word is recognized.
+     *
+     * This includes both bundled dictionary words
+     * and words learned by the user.
      */
     fun isValidWord(word: String): Boolean
 
     /**
-     * Returns words beginning with [prefix].
+     * Returns completion suggestions for the
+     * currently typed prefix.
      */
     fun suggestCompletions(
         prefix: String,
@@ -34,16 +40,38 @@ interface Dictionary {
     ): List<String>
 
     /**
-     * Teach the dictionary a new word.
+     * Teach CipherKeys a new word.
      *
-     * This is what allows CipherKeys to learn words
-     * that aren't in the bundled dictionary.
+     * This is what allows the keyboard to learn
+     * names, slang, technical terms, personal words,
+     * etc.
      */
     fun learnWord(word: String)
 
     /**
-     * Returns true when this word was specifically
-     * learned from the user.
+     * Returns whether the word was specifically
+     * learned by the user.
      */
-    fun isUserLearnedWord(word: String): Boolean
+    fun isLearnedWord(word: String): Boolean
+
+    /**
+     * Returns how many times the user has taught
+     * or used a particular learned word.
+     */
+    fun usageCount(word: String): Int
+
+    /**
+     * Returns the user's learned vocabulary.
+     */
+    fun learnedWords(): List<String>
+
+    /**
+     * Remove one word from the personal vocabulary.
+     */
+    fun removeLearnedWord(word: String)
+
+    /**
+     * Clear all user-learned vocabulary.
+     */
+    fun clearLearnedWords()
 }
