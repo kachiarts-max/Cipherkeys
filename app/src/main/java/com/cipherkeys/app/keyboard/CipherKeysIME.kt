@@ -13,18 +13,17 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import com.cipherkeys.app.data.KeyboardMode
 import com.cipherkeys.app.data.KeyboardSettings
-import com.cipherkeys.app.data.KeyboardTheme
+import com.cipherkeys.app.data.SettingsRepository
 import com.cipherkeys.app.decoder.CipherKeysDecoder
+import com.cipherkeys.app.dictionary.ContextPredictor
+import com.cipherkeys.app.dictionary.Dictionary
+import com.cipherkeys.app.dictionary.EnglishLexicon
+import com.cipherkeys.app.emoji.RecentEmojiStore
 import com.cipherkeys.app.encoder.ClassicLeetEncoder
 import com.cipherkeys.app.encoder.Encoder
 import com.cipherkeys.app.encoder.EliteEncoder
 import com.cipherkeys.app.encoder.HackerEncoder
 import com.cipherkeys.app.encoder.UltraEncoder
-import com.cipherkeys.app.data.SettingsRepository
-import com.cipherkeys.app.dictionary.ContextPredictor
-import com.cipherkeys.app.dictionary.Dictionary
-import com.cipherkeys.app.dictionary.EnglishLexicon
-import com.cipherkeys.app.emoji.RecentEmojiStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,7 +41,7 @@ import kotlinx.coroutines.withContext
  * - Provide dictionary suggestions
  * - Learn new vocabulary
  * - Learn word-to-word context
- * - Provide context-aware predictions
+ * - Provide smart context-aware predictions
  * - Handle emoji
  * - Handle themes/backgrounds/settings
  */
@@ -79,14 +78,16 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
     /**
      * Context-learning engine.
-     *
-     * Learns relationships such as:
-     *
-     * I -> am
-     * thank -> you
-     * see -> you
      */
     private lateinit var contextPredictor: ContextPredictor
+
+    /**
+     * Central suggestion engine.
+     *
+     * Combines dictionary, learned vocabulary
+     * and context predictions.
+     */
+    private lateinit var smartSuggestionEngine: SmartSuggestionEngine
 
     private lateinit var recentEmojiStore: RecentEmojiStore
 
@@ -107,24 +108,15 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
     /**
      * Most recently completed word.
-     *
-     * Example:
-     *
-     * User types:
-     *
-     * "I am"
-     *
-     * After "I":
-     *
-     * lastCompletedWord = "i"
-     *
-     * After "am":
-     *
-     * lastCompletedWord = "am"
      */
     private var lastCompletedWord: String = ""
 
+    // =========================================================
+    // LIFECYCLE
+    // =========================================================
+
     override fun onCreate() {
+
         super.onCreate()
 
         settingsRepository =
@@ -140,6 +132,12 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         contextPredictor =
             ContextPredictor(
                 applicationContext
+            )
+
+        smartSuggestionEngine =
+            SmartSuggestionEngine(
+                dictionary,
+                contextPredictor
             )
 
         recentEmojiStore =
@@ -166,9 +164,11 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                     settings.backgroundImagePath !=
                             currentSettings.backgroundImagePath
 
-                currentSettings = settings
+                currentSettings =
+                    settings
 
                 if (mappingsChanged) {
+
                     rebuildEncoders(
                         settings.customMappings
                     )
@@ -223,6 +223,10 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         }
     }
 
+    /**
+     * Rebuild all encoders using the current
+     * custom character mappings.
+     */
     private fun rebuildEncoders(
         customMappings: Map<Char, List<String>>
     ) {
@@ -253,6 +257,10 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             )
     }
 
+    /**
+     * Decode a background image without blocking
+     * the main thread.
+     */
     private suspend fun decodeBackgroundBitmap(
         path: String
     ): Bitmap? =
@@ -270,7 +278,9 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                     options
                 )
 
-            } catch (e: Exception) {
+            } catch (
+                e: Exception
+            ) {
 
                 null
             }
@@ -331,15 +341,13 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         finalizeWord()
 
         /*
-         * Try to recover the last word already present
-         * before the cursor.
-         *
-         * This helps context prediction when the user
-         * enters an existing text field.
+         * Recover the word immediately before
+         * the cursor when possible.
          */
         recoverPreviousWord()
 
         if (currentSettings.autoDecodeEnabled) {
+
             decodeExistingFieldText()
         }
     }
@@ -348,7 +356,9 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     // KEYBOARD ACTIONS
     // =========================================================
 
-    override fun onCharKey(char: Char) {
+    override fun onCharKey(
+        char: Char
+    ) {
 
         val ic =
             currentInputConnection
@@ -422,13 +432,12 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
              */
             completeCurrentWord()
 
-            /*
-             * Keep context predictions visible
-             * after punctuation where appropriate.
-             */
             updateContextSuggestions()
         }
 
+        /*
+         * Shift is normally one-shot.
+         */
         if (shiftEnabled) {
 
             shiftEnabled = false
@@ -441,29 +450,29 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
     override fun onSpace() {
 
-    /*
-     * Correct the word before committing
-     * the space.
-     */
-    maybeAutocorrectBeforeBoundary()
+        /*
+         * Correct the word before committing
+         * the space.
+         */
+        maybeAutocorrectBeforeBoundary()
 
-    /*
-     * Finish and learn the word.
-     */
-    completeCurrentWord()
+        /*
+         * Finish and learn the word.
+         */
+        completeCurrentWord()
 
-    currentInputConnection?.commitText(
-        " ",
-        1
-    )
+        currentInputConnection?.commitText(
+            " ",
+            1
+        )
 
-    performFeedback()
+        performFeedback()
 
-    /*
-     * Show predictions for the next word.
-     */
-    updateContextSuggestions()
-}
+        /*
+         * Show predictions for the next word.
+         */
+        updateContextSuggestions()
+    }
 
     override fun onBackspace() {
 
@@ -511,8 +520,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
             /*
              * If we backspace over a space,
-             * try to recover the previous word
-             * from the field.
+             * recover the previous word.
              */
             recoverPreviousWord()
 
@@ -570,6 +578,13 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
         shiftEnabled =
             !shiftEnabled
+
+        if (::keyboardView.isInitialized) {
+
+            keyboardView.setShiftState(
+                shiftEnabled
+            )
+        }
     }
 
     override fun onModeSelected(
@@ -596,7 +611,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
         /*
          * Selecting a suggestion is strong evidence
-         * that the user actually wanted this word.
+         * that the user wanted this word.
          */
         dictionary.learnWord(
             word
@@ -604,15 +619,6 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
         /*
          * Teach the context engine too.
-         *
-         * Example:
-         *
-         * previous = "thank"
-         * selected = "you"
-         *
-         * learns:
-         *
-         * thank -> you
          */
         if (
             lastCompletedWord.isNotBlank()
@@ -630,22 +636,22 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         )
 
         /*
-         * The selected word is now the most
-         * recently completed word.
+         * The selected word becomes the new context.
          */
         lastCompletedWord =
             word.lowercase()
 
+        /*
+         * Keep the existing behavior:
+         * selecting a suggestion commits a space.
+         */
         ic.commitText(
             " ",
             1
         )
 
-        /*
-         * Immediately show predictions for
-         * the word that follows the selected one.
-         */
         rawWordBuffer.clear()
+
         encodedLengthsPerChar.clear()
 
         updateContextSuggestions()
@@ -683,13 +689,11 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     // =========================================================
 
     /**
-     * Updates suggestions while the user is currently typing.
+     * Updates suggestions while the user is
+     * currently typing.
      *
-     * Combines:
-     *
-     * 1. Context predictions
-     * 2. Learned vocabulary
-     * 3. Normal dictionary completions
+     * SmartSuggestionEngine is now responsible
+     * for combining dictionary and context results.
      */
     private fun updateSuggestions() {
 
@@ -698,7 +702,8 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         }
 
         val prefix =
-            rawWordBuffer.toString()
+            rawWordBuffer
+                .toString()
 
         if (prefix.isBlank()) {
 
@@ -707,69 +712,21 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             return
         }
 
-        /*
-         * Normal dictionary suggestions.
-         */
-        val dictionarySuggestions =
-            dictionary.suggestCompletions(
-                prefix,
+        val suggestions =
+            smartSuggestionEngine.suggest(
+                prefix = prefix,
+                previousWord = lastCompletedWord,
                 limit = 3
             )
 
-        /*
-         * Context suggestions based on
-         * the previous completed word.
-         */
-        val contextSuggestions =
-            if (lastCompletedWord.isNotBlank()) {
-
-                contextPredictor
-                    .suggestNextWords(
-                        lastCompletedWord,
-                        limit = 5
-                    )
-                    .filter {
-                        it.startsWith(
-                            prefix.lowercase()
-                        )
-                    }
-
-            } else {
-
-                emptyList()
-            }
-
-        /*
-         * Context gets priority because it represents
-         * what the user commonly says after the previous
-         * word.
-         */
-        val combined =
-            (
-                contextSuggestions +
-                        dictionarySuggestions
-                )
-                .distinct()
-                .take(3)
-
         keyboardView.setSuggestions(
-            combined
+            suggestions
         )
     }
 
     /**
      * Show predictions when there is no active
      * word being typed.
-     *
-     * Example:
-     *
-     * User types:
-     *
-     * "thank "
-     *
-     * Suggestions:
-     *
-     * you | god | goodness
      */
     private fun updateContextSuggestions() {
 
@@ -787,20 +744,23 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         }
 
         val suggestions =
-            contextPredictor
-                .suggestNextWords(
-                    lastCompletedWord,
-                    limit = 3
-                )
+            smartSuggestionEngine.suggestContext(
+                previousWord = lastCompletedWord,
+                limit = 3
+            )
 
         keyboardView.setSuggestions(
             suggestions
         )
     }
 
+    // =========================================================
+    // WORD LEARNING
+    // =========================================================
+
     /**
      * Completes the current word and teaches
-     * both learning systems.
+     * both dictionary and context systems.
      */
     private fun completeCurrentWord() {
 
@@ -862,6 +822,9 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             return
         }
 
+        /*
+         * Do not autocorrect encoded modes.
+         */
         if (
             currentMode != KeyboardMode.NORMAL &&
             currentMode != KeyboardMode.DECODE
@@ -975,11 +938,8 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     // =========================================================
 
     /**
-     * Attempts to discover the word immediately before
-     * the cursor.
-     *
-     * This makes context prediction survive switching
-     * between fields or after certain backspace operations.
+     * Attempts to discover the word immediately
+     * before the cursor.
      */
     private fun recoverPreviousWord() {
 
@@ -1079,6 +1039,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         if (
             currentSettings.vibrationEnabled
         ) {
+
             vibrate()
         }
 
@@ -1147,6 +1108,10 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             }
         }
     }
+
+    // =========================================================
+    // DESTROY
+    // =========================================================
 
     override fun onDestroy() {
 
