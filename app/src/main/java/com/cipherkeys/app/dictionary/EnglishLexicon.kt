@@ -12,9 +12,9 @@ import java.io.InputStreamReader
  * 1. Built-in English vocabulary
  * 2. User-learned vocabulary
  *
- * This means CipherKeys can start with the bundled dictionary
- * and gradually build a personal dictionary based on the
- * user's typing habits.
+ * This allows CipherKeys to gradually develop
+ * a personal dictionary based on the user's
+ * typing habits.
  */
 class EnglishLexicon(
     context: Context,
@@ -38,18 +38,14 @@ class EnglishLexicon(
 
     /**
      * Built-in words grouped by first letter.
-     *
-     * This makes normal completion searches faster.
      */
-    private val byFirstLetter:
-            Map<Char, List<String>> =
-        words.groupBy {
-            it.first()
-        }
+    private val byFirstLetter: Map<Char, List<String>> =
+        words.groupBy { it.first() }
 
     /**
-     * Checks both the built-in dictionary
-     * and the user's personal vocabulary.
+     * Returns true when a word exists in either
+     * the built-in dictionary or the user's
+     * learned vocabulary.
      */
     override fun isValidWord(
         word: String
@@ -67,12 +63,10 @@ class EnglishLexicon(
     }
 
     /**
-     * Returns suggestions from BOTH:
+     * Returns completion suggestions.
      *
-     * - Built-in English dictionary
-     * - User's learned vocabulary
-     *
-     * User vocabulary gets priority when appropriate.
+     * Learned words are given priority because
+     * they represent the user's personal vocabulary.
      */
     override fun suggestCompletions(
         prefix: String,
@@ -87,8 +81,7 @@ class EnglishLexicon(
             prefix.lowercase()
 
         /*
-         * Suggestions learned from the user's
-         * personal vocabulary.
+         * Words learned by the user.
          */
         val personalSuggestions =
             userVocabulary.suggest(
@@ -97,31 +90,25 @@ class EnglishLexicon(
             )
 
         /*
-         * Built-in dictionary suggestions.
+         * Words from the built-in dictionary.
          */
         val builtInSuggestions =
             byFirstLetter[
-                normalizedPrefix.firstOrNull()
+                normalizedPrefix.first()
             ]
-                ?.asSequence()
-                ?.filter {
-                    it.startsWith(
-                        normalizedPrefix
-                    ) &&
-                    it != normalizedPrefix
+                ?.filter { word ->
+                    word.startsWith(normalizedPrefix) &&
+                            word != normalizedPrefix
                 }
-                ?.sortedBy {
-                    it.length
+                ?.sortedBy { word ->
+                    word.length
                 }
                 ?.take(limit)
-                ?.toList()
                 ?: emptyList()
 
         /*
-         * Combine both sources.
-         *
-         * Personal vocabulary comes first because
-         * it represents words the user actually uses.
+         * Personal vocabulary first,
+         * followed by normal dictionary words.
          */
         return (
             personalSuggestions +
@@ -132,33 +119,24 @@ class EnglishLexicon(
     }
 
     /**
-     * Learn a new word.
-     *
-     * The personal vocabulary decides whether
-     * the word is suitable for learning.
+     * Teach CipherKeys a new word.
      */
     override fun learnWord(
         word: String
     ) {
 
         val normalized =
-            word.trim()
+            word.trim().lowercase()
 
         if (normalized.isBlank()) {
             return
         }
 
         /*
-         * Only learn words that are not already
-         * part of the built-in dictionary.
-         *
-         * This keeps the personal dictionary
-         * focused on the user's own vocabulary.
+         * Only store words that aren't already
+         * contained in the bundled dictionary.
          */
-        if (!words.contains(
-                normalized.lowercase()
-            )
-        ) {
+        if (!words.contains(normalized)) {
 
             userVocabulary.learnWord(
                 normalized
@@ -167,10 +145,10 @@ class EnglishLexicon(
     }
 
     /**
-     * Suggest likely corrections for a misspelled word.
+     * Returns likely corrections for a misspelled word.
      *
-     * Corrections are currently calculated against
-     * both the built-in and learned vocabulary.
+     * Corrections can come from both the built-in
+     * dictionary and learned vocabulary.
      */
     override fun suggestCorrections(
         word: String,
@@ -191,28 +169,28 @@ class EnglishLexicon(
          * Built-in candidates.
          */
         val builtInCandidates =
-            words.filter {
+            words.filter { candidate ->
                 kotlin.math.abs(
-                    it.length -
+                    candidate.length -
                             normalized.length
                 ) <= 2
             }
 
         /*
-         * Learned vocabulary candidates.
+         * User-learned candidates.
          */
         val learnedCandidates =
             userVocabulary
                 .allWords()
-                .filter {
+                .filter { candidate ->
                     kotlin.math.abs(
-                        it.length -
+                        candidate.length -
                                 normalized.length
                     ) <= 2
                 }
 
         /*
-         * Combine both dictionaries.
+         * Combine both sources.
          */
         val candidates =
             (
@@ -222,27 +200,28 @@ class EnglishLexicon(
                 .distinct()
 
         return candidates
-            .map {
-                it to levenshteinDistance(
+            .map { candidate ->
+                candidate to levenshteinDistance(
                     normalized,
-                    it
+                    candidate
                 )
             }
-            .filter {
-                (_, distance) ->
-                distance <= 2
+            .filter { pair ->
+                pair.second <= 2
             }
-            .sortedBy {
-                it.second
+            .sortedBy { pair ->
+                pair.second
             }
             .take(limit)
-            .map {
-                it.first
+            .map { pair ->
+                pair.first
             }
     }
 
     /**
-     * Load the bundled dictionary from assets.
+     * Loads the bundled dictionary from:
+     *
+     * assets/dictionary/common_words.txt
      */
     private fun loadWords(
         context: Context,
@@ -260,27 +239,30 @@ class EnglishLexicon(
                     ).useLines { lines ->
 
                         lines
-                            .map {
-                                it.trim()
-                                    .lowercase()
+                            .map { line ->
+                                line.trim().lowercase()
                             }
-                            .filter {
-                                it.isNotEmpty()
+                            .filter { word ->
+                                word.isNotEmpty()
                             }
                             .toSet()
                     }
                 }
 
-        } catch (
-            e: Exception
-        ) {
+        } catch (e: Exception) {
 
             emptySet()
         }
     }
 
     /**
-     * Standard Levenshtein edit distance.
+     * Standard Levenshtein edit-distance calculation.
+     *
+     * Counts:
+     *
+     * - insertion
+     * - deletion
+     * - substitution
      */
     private fun levenshteinDistance(
         a: String,
@@ -290,4 +272,43 @@ class EnglishLexicon(
         val dp =
             Array(
                 a.length + 1
-            )
+            ) {
+                IntArray(
+                    b.length + 1
+                )
+            }
+
+        for (i in 0..a.length) {
+            dp[i][0] = i
+        }
+
+        for (j in 0..b.length) {
+            dp[0][j] = j
+        }
+
+        for (i in 1..a.length) {
+
+            for (j in 1..b.length) {
+
+                val cost =
+                    if (
+                        a[i - 1] ==
+                        b[j - 1]
+                    ) {
+                        0
+                    } else {
+                        1
+                    }
+
+                dp[i][j] =
+                    minOf(
+                        dp[i - 1][j] + 1,
+                        dp[i][j - 1] + 1,
+                        dp[i - 1][j - 1] + cost
+                    )
+            }
+        }
+
+        return dp[a.length][b.length]
+    }
+}
