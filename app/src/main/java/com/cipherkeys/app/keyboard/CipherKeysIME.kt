@@ -908,93 +908,21 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     // =========================================================
     // SUGGESTION CLICK
     // =========================================================
+override fun onSuggestionSelected(word: String) {
+    val ic = currentInputConnection ?: return
 
-    override fun onSuggestionSelected(
-        word: String
-    ) {
+    // Treat selecting a suggestion as a strong indication
+    // that the user actually wanted this word.
+    dictionary.learnWord(word)
 
-        val ic =
-            currentInputConnection
-                ?: return
+    replaceCurrentWord(ic, word)
 
-        /*
-         * If the user has partially typed a word:
-         *
-         * "morn"
-         *
-         * and chooses:
-         *
-         * "morning"
-         *
-         * replace the partial word.
-         *
-         * If there is no partial word, simply insert the
-         * predicted word.
-         */
-        if (
-            rawWordBuffer.isNotEmpty()
-        ) {
+    ic.commitText(" ", 1)
 
-            replaceCurrentWord(
-                ic,
-                word
-            )
+    finalizeWord()
 
-        } else {
-
-            val output =
-                encodeWordIfNecessary(
-                    word
-                )
-
-            ic.commitText(
-                output,
-                1
-            )
-        }
-
-        /*
-         * Learn that the selected word is useful.
-         */
-        learnWord(
-            word
-        )
-
-        /*
-         * Learn:
-         *
-         * previousWord -> selected word
-         */
-        if (
-            previousWord.isNotEmpty()
-        ) {
-
-            learnContextPair(
-                previousWord,
-                word
-            )
-        }
-
-        previousWord =
-            word.lowercase()
-
-        ic.commitText(
-            " ",
-            1
-        )
-
-        rawWordBuffer.clear()
-
-        encodedLengthsPerChar.clear()
-
-        updateSuggestions()
-
-        performFeedback()
-    }
-
-    // =========================================================
-    // EMOJI
-    // =========================================================
+    performFeedback()
+}
 
     override fun onEmojiSelected(
         emoji: String
