@@ -3,27 +3,27 @@ package com.cipherkeys.app.dictionary
 import android.content.Context
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import kotlin.math.abs
 
 /**
- * CipherKeys English dictionary.
+ * Main English dictionary for CipherKeys.
  *
  * Combines:
  *
- * 1. Built-in English vocabulary
- * 2. User-learned vocabulary
+ * - Bundled English dictionary
+ * - Common contractions
+ * - Personal user vocabulary
  *
- * This allows CipherKeys to gradually develop
- * a personal dictionary based on the user's
- * typing habits.
+ * User vocabulary is stored locally on the device.
  */
 class EnglishLexicon(
     context: Context,
     assetPath: String = "dictionary/common_words.txt"
 ) : Dictionary {
 
-    /**
-     * Built-in English words.
-     */
+    private val userVocabulary =
+        UserVocabulary(context)
+
     private val words: Set<String> =
         loadWords(
             context,
@@ -31,197 +31,77 @@ class EnglishLexicon(
         )
 
     /**
-     * Personal vocabulary learned by the user.
+     * Common English contractions.
+     *
+     * These are included so CipherKeys recognizes
+     * natural everyday typing.
      */
-    private val userVocabulary =
-        UserVocabulary(context)
+    private val contractions =
+        setOf(
+            "don't",
+            "doesn't",
+            "didn't",
+            "can't",
+            "cannot",
+            "couldn't",
+            "wouldn't",
+            "shouldn't",
+            "won't",
+            "isn't",
+            "aren't",
+            "wasn't",
+            "weren't",
+            "haven't",
+            "hasn't",
+            "hadn't",
+            "mustn't",
+            "mightn't",
+            "needn't",
+            "i'm",
+            "you're",
+            "he's",
+            "she's",
+            "it's",
+            "we're",
+            "they're",
+            "i've",
+            "you've",
+            "we've",
+            "they've",
+            "i'd",
+            "you'd",
+            "he'd",
+            "she'd",
+            "we'd",
+            "they'd",
+            "i'll",
+            "you'll",
+            "he'll",
+            "she'll",
+            "we'll",
+            "they'll",
+            "that's",
+            "there's",
+            "here's",
+            "what's",
+            "who's",
+            "let's"
+        )
 
     /**
-     * Built-in words grouped by first letter.
+     * Words grouped by first character.
+     *
+     * This avoids scanning the entire dictionary
+     * for normal completion searches.
      */
     private val byFirstLetter: Map<Char, List<String>> =
-        words.groupBy { it.first() }
-
-    /**
-     * Returns true when a word exists in either
-     * the built-in dictionary or the user's
-     * learned vocabulary.
-     */
-    override fun isValidWord(
-        word: String
-    ): Boolean {
-
-        if (word.isBlank()) {
-            return false
-        }
-
-        val normalized =
-            word.lowercase()
-
-        return words.contains(normalized) ||
-                userVocabulary.contains(normalized)
-    }
-
-    /**
-     * Returns completion suggestions.
-     *
-     * Learned words are given priority because
-     * they represent the user's personal vocabulary.
-     */
-    override fun suggestCompletions(
-        prefix: String,
-        limit: Int
-    ): List<String> {
-
-        if (prefix.isBlank()) {
-            return emptyList()
-        }
-
-        val normalizedPrefix =
-            prefix.lowercase()
-
-        /*
-         * Words learned by the user.
-         */
-        val personalSuggestions =
-            userVocabulary.suggest(
-                normalizedPrefix,
-                limit
-            )
-
-        /*
-         * Words from the built-in dictionary.
-         */
-        val builtInSuggestions =
-            byFirstLetter[
-                normalizedPrefix.first()
-            ]
-                ?.filter { word ->
-                    word.startsWith(normalizedPrefix) &&
-                            word != normalizedPrefix
-                }
-                ?.sortedBy { word ->
-                    word.length
-                }
-                ?.take(limit)
-                ?: emptyList()
-
-        /*
-         * Personal vocabulary first,
-         * followed by normal dictionary words.
-         */
-        return (
-            personalSuggestions +
-                    builtInSuggestions
-            )
-            .distinct()
-            .take(limit)
-    }
-
-    /**
-     * Teach CipherKeys a new word.
-     */
-    override fun learnWord(
-        word: String
-    ) {
-
-        val normalized =
-            word.trim().lowercase()
-
-        if (normalized.isBlank()) {
-            return
-        }
-
-        /*
-         * Only store words that aren't already
-         * contained in the bundled dictionary.
-         */
-        if (!words.contains(normalized)) {
-
-            userVocabulary.learnWord(
-                normalized
-            )
-        }
-    }
-
-    /**
-     * Returns likely corrections for a misspelled word.
-     *
-     * Corrections can come from both the built-in
-     * dictionary and learned vocabulary.
-     */
-    override fun suggestCorrections(
-        word: String,
-        limit: Int
-    ): List<String> {
-
-        if (
-            word.isBlank() ||
-            isValidWord(word)
-        ) {
-            return emptyList()
-        }
-
-        val normalized =
-            word.lowercase()
-
-        /*
-         * Built-in candidates.
-         */
-        val builtInCandidates =
-            words.filter { candidate ->
-                kotlin.math.abs(
-                    candidate.length -
-                            normalized.length
-                ) <= 2
+        words
+            .groupBy {
+                it.first()
             }
 
-        /*
-         * User-learned candidates.
-         */
-        val learnedCandidates =
-            userVocabulary
-                .allWords()
-                .filter { candidate ->
-                    kotlin.math.abs(
-                        candidate.length -
-                                normalized.length
-                    ) <= 2
-                }
-
-        /*
-         * Combine both sources.
-         */
-        val candidates =
-            (
-                builtInCandidates +
-                        learnedCandidates
-                )
-                .distinct()
-
-        return candidates
-            .map { candidate ->
-                candidate to levenshteinDistance(
-                    normalized,
-                    candidate
-                )
-            }
-            .filter { pair ->
-                pair.second <= 2
-            }
-            .sortedBy { pair ->
-                pair.second
-            }
-            .take(limit)
-            .map { pair ->
-                pair.first
-            }
-    }
-
     /**
-     * Loads the bundled dictionary from:
-     *
-     * assets/dictionary/common_words.txt
+     * Load the bundled dictionary.
      */
     private fun loadWords(
         context: Context,
@@ -239,11 +119,11 @@ class EnglishLexicon(
                     ).useLines { lines ->
 
                         lines
-                            .map { line ->
-                                line.trim().lowercase()
+                            .map {
+                                it.trim().lowercase()
                             }
-                            .filter { word ->
-                                word.isNotEmpty()
+                            .filter {
+                                it.isNotEmpty()
                             }
                             .toSet()
                     }
@@ -256,13 +136,198 @@ class EnglishLexicon(
     }
 
     /**
-     * Standard Levenshtein edit-distance calculation.
+     * Check whether a word is recognized.
+     */
+    override fun isValidWord(
+        word: String
+    ): Boolean {
+
+        if (word.isBlank()) {
+            return false
+        }
+
+        val normalized =
+            word.lowercase()
+
+        return words.contains(normalized) ||
+                contractions.contains(normalized) ||
+                userVocabulary.contains(normalized)
+    }
+
+    /**
+     * Teach CipherKeys a word.
+     */
+    override fun learnWord(
+        word: String
+    ) {
+
+        userVocabulary.learnWord(word)
+    }
+
+    /**
+     * Check whether a word came from the user's
+     * personal vocabulary.
+     */
+    override fun isUserLearnedWord(
+        word: String
+    ): Boolean {
+
+        return userVocabulary.contains(word)
+    }
+
+    /**
+     * Find words that begin with the supplied prefix.
      *
-     * Counts:
+     * Ranking:
      *
-     * - insertion
-     * - deletion
-     * - substitution
+     * 1. Frequently used personal words
+     * 2. Bundled dictionary words
+     * 3. Contractions
+     */
+    override fun suggestCompletions(
+        prefix: String,
+        limit: Int
+    ): List<String> {
+
+        if (prefix.isBlank()) {
+            return emptyList()
+        }
+
+        val lower =
+            prefix.lowercase()
+
+        /*
+         * Personal vocabulary gets priority.
+         */
+        val learnedSuggestions =
+            userVocabulary.suggest(
+                lower,
+                limit
+            )
+
+        /*
+         * Normal dictionary completions.
+         */
+        val dictionarySuggestions =
+            if (lower.isNotEmpty()) {
+
+                val candidates =
+                    byFirstLetter[
+                        lower.first()
+                    ] ?: emptyList()
+
+                candidates
+                    .asSequence()
+                    .filter {
+                        it.startsWith(lower) &&
+                                it != lower
+                    }
+                    .sortedWith(
+                        compareBy<String> {
+                            it.length
+                        }.thenBy {
+                            it
+                        }
+                    )
+                    .take(limit)
+                    .toList()
+
+            } else {
+
+                emptyList()
+            }
+
+        /*
+         * Contraction completions.
+         */
+        val contractionSuggestions =
+            contractions
+                .asSequence()
+                .filter {
+                    it.startsWith(lower) &&
+                            it != lower
+                }
+                .sortedBy {
+                    it.length
+                }
+                .take(limit)
+                .toList()
+
+        /*
+         * Combine everything and remove duplicates.
+         */
+        return (
+            learnedSuggestions +
+                    contractionSuggestions +
+                    dictionarySuggestions
+            )
+            .distinct()
+            .take(limit)
+    }
+
+    /**
+     * Find likely corrections.
+     */
+    override fun suggestCorrections(
+        word: String,
+        limit: Int
+    ): List<String> {
+
+        if (
+            word.isBlank() ||
+            isValidWord(word)
+        ) {
+            return emptyList()
+        }
+
+        val lower =
+            word.lowercase()
+
+        /*
+         * Combine bundled words, contractions,
+         * and learned vocabulary.
+         */
+        val candidates =
+            (
+                words +
+                        contractions +
+                        userVocabulary.allWords()
+                )
+                .asSequence()
+                .filter {
+                    abs(
+                        it.length - lower.length
+                    ) <= 2
+                }
+                .distinct()
+
+        return candidates
+            .map {
+                it to levenshteinDistance(
+                    lower,
+                    it
+                )
+            }
+            .filter {
+                (_, distance) ->
+                distance <= 2
+            }
+            .sortedWith(
+                compareBy<Pair<String, Int>> {
+                    it.second
+                }.thenBy {
+                    it.first.length
+                }
+            )
+            .take(limit)
+            .map {
+                it.first
+            }
+            .toList()
+    }
+
+    /**
+     * Standard Levenshtein edit distance.
      */
     private fun levenshteinDistance(
         a: String,
