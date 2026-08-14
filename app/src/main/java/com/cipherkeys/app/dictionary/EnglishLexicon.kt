@@ -6,224 +6,182 @@ import java.io.InputStreamReader
 import kotlin.math.abs
 
 /**
- * Smart local dictionary for CipherKeys.
+ * CipherKeys English dictionary.
  *
- * Sources:
- * 1. Bundled English dictionary
+ * Combines:
+ *
+ * 1. Bundled English words
  * 2. Common English contractions
- * 3. User-learned vocabulary
+ * 3. Locally learned words
  *
- * User words are stored locally on the device.
+ * Learned words are stored on the device and survive
+ * keyboard restarts.
  */
 class EnglishLexicon(
     context: Context,
     assetPath: String = "dictionary/common_words.txt"
 ) : Dictionary {
 
+    private val appContext = context.applicationContext
+
     private val preferences =
-        context.getSharedPreferences(
-            "cipherkeys_vocabulary",
+        appContext.getSharedPreferences(
+            "cipherkeys_dictionary",
             Context.MODE_PRIVATE
         )
 
-    private val words: Set<String> =
-        loadWords(context, assetPath)
+    /**
+     * Words included with the application.
+     */
+    private val bundledWords: Set<String> =
+        loadBundledWords(
+            appContext,
+            assetPath
+        )
 
     /**
-     * Common English contractions.
+     * Common contractions that should always be recognized.
+     *
+     * This is important because normal English typing contains
+     * contractions such as:
+     *
+     * don't
+     * can't
+     * won't
+     * wouldn't
+     * couldn't
+     * shouldn't
+     * I'm
+     * I've
+     * I'll
+     * we're
+     * they're
      */
-    private val contractions = setOf(
-        "I'm", "I've", "I'll", "I'd",
-        "you're", "you've", "you'll", "you'd",
-        "he's", "he'll", "he'd",
-        "she's", "she'll", "she'd",
-        "it's", "it'll", "it'd",
-        "we're", "we've", "we'll", "we'd",
-        "they're", "they've", "they'll", "they'd",
-        "that's", "that'll", "that'd",
-        "there's", "there'll", "there'd",
-        "what's", "what'll", "what'd",
-        "who's", "who'll", "who'd",
-        "where's", "where'll", "where'd",
-        "when's", "when'd",
-        "why's",
-        "how's",
+    private val contractions: Set<String> = setOf(
 
-        "isn't",
         "aren't",
-        "wasn't",
-        "weren't",
-
-        "haven't",
-        "hasn't",
-        "hadn't",
-
-        "don't",
-        "doesn't",
-        "didn't",
-
         "can't",
         "couldn't",
-
-        "won't",
-        "wouldn't",
-
-        "shouldn't",
-        "mustn't",
+        "didn't",
+        "doesn't",
+        "don't",
+        "hadn't",
+        "hasn't",
+        "haven't",
+        "he'd",
+        "he'll",
+        "he's",
+        "how'd",
+        "how'll",
+        "how's",
+        "I'd",
+        "I'll",
+        "I'm",
+        "I've",
+        "isn't",
+        "it'd",
+        "it'll",
+        "it's",
+        "let's",
         "mightn't",
+        "mustn't",
         "needn't",
         "shan't",
-
-        "let's"
-    ).map { it.lowercase() }
+        "she'd",
+        "she'll",
+        "she's",
+        "shouldn't",
+        "that'd",
+        "that's",
+        "there'd",
+        "there'll",
+        "there's",
+        "they'd",
+        "they'll",
+        "they're",
+        "they've",
+        "wasn't",
+        "we'd",
+        "we'll",
+        "we're",
+        "we've",
+        "weren't",
+        "what'd",
+        "what's",
+        "when's",
+        "where'd",
+        "where's",
+        "who'd",
+        "who'll",
+        "who's",
+        "why'd",
+        "why's",
+        "won't",
+        "wouldn't",
+        "you'd",
+        "you'll",
+        "you're",
+        "you've"
+    )
 
     /**
-     * Word -> usage count.
+     * Words learned by the user.
      *
-     * Example:
-     *
-     * cipherkeys = 20
-     * hello = 12
-     * bro = 7
+     * They are stored as a Set<String> in SharedPreferences.
      */
-    private val learnedWords: MutableMap<String, Int> =
-        loadLearnedWords()
-
-    /**
-     * Loads the bundled dictionary.
-     */
-    private fun loadWords(
-        context: Context,
-        assetPath: String
-    ): Set<String> {
-
-        return try {
-
-            context.assets.open(assetPath).use { stream ->
-
-                BufferedReader(
-                    InputStreamReader(stream)
-                ).useLines { lines ->
-
-                    lines
-                        .map {
-                            it.trim().lowercase()
-                        }
-                        .filter {
-                            it.isNotEmpty()
-                        }
-                        .toSet()
-                }
-            }
-
-        } catch (e: Exception) {
-
-            emptySet()
-        }
-    }
-
-    /**
-     * Loads previously learned words.
-     */
-    private fun loadLearnedWords(): MutableMap<String, Int> {
-
-        val saved =
-            preferences.getStringSet(
+    private val learnedWords: MutableSet<String> =
+        preferences
+            .getStringSet(
                 "learned_words",
                 emptySet()
-            ) ?: emptySet()
-
-        val result =
-            mutableMapOf<String, Int>()
-
-        saved.forEach { entry ->
-
-            val parts =
-                entry.split("|", limit = 2)
-
-            if (parts.size == 2) {
-
-                val word = parts[0]
-
-                val count =
-                    parts[1].toIntOrNull() ?: 1
-
-                if (word.isNotBlank()) {
-                    result[word] = count
-                }
-            }
-        }
-
-        return result
-    }
-
-    /**
-     * Saves learned vocabulary.
-     */
-    private fun saveLearnedWords() {
-
-        val encoded =
-            learnedWords.map { (word, count) ->
-                "$word|$count"
-            }.toSet()
-
-        preferences.edit()
-            .putStringSet(
-                "learned_words",
-                encoded
             )
-            .apply()
-    }
+            ?.map {
+                it.lowercase()
+            }
+            ?.toMutableSet()
+            ?: mutableSetOf()
 
     /**
-     * Determines whether a word is known.
+     * Combined dictionary.
      */
-    override fun isValidWord(word: String): Boolean {
-
-        if (word.isBlank()) return false
-
-        val normalized =
-            word.lowercase()
-
-        return normalized in words ||
-                normalized in contractions ||
-                learnedWords.containsKey(normalized)
-    }
+    private val allWords: Set<String>
+        get() =
+            bundledWords +
+                    contractions +
+                    learnedWords
 
     /**
-     * Teach CipherKeys a new word.
+     * Words grouped by their first character.
      *
-     * Every time the user completes a word,
-     * its frequency increases.
+     * This prevents every suggestion request from scanning
+     * the entire dictionary.
      */
-    override fun learnWord(word: String) {
+    private val byFirstLetter: Map<Char, List<String>>
+        get() =
+            allWords
+                .filter {
+                    it.isNotEmpty()
+                }
+                .groupBy {
+                    it.first()
+                }
+
+    override fun isValidWord(
+        word: String
+    ): Boolean {
 
         val normalized =
-            word
-                .trim()
-                .lowercase()
+            normalize(word)
 
-        if (normalized.length < 2) return
-
-        /*
-         * Don't learn something that contains no letters.
-         */
-        if (!normalized.any { it.isLetter() }) {
-            return
+        if (normalized.isEmpty()) {
+            return false
         }
 
-        val current =
-            learnedWords[normalized] ?: 0
-
-        learnedWords[normalized] =
-            current + 1
-
-        saveLearnedWords()
+        return allWords.contains(
+            normalized
+        )
     }
 
-    /**
-     * Generate intelligent autocomplete suggestions.
-     */
     override fun suggestCompletions(
         prefix: String,
         limit: Int
@@ -233,140 +191,59 @@ class EnglishLexicon(
             return emptyList()
         }
 
-        val lowerPrefix =
-            prefix.lowercase()
+        val normalizedPrefix =
+            normalize(prefix)
 
-        /*
-         * Candidate information.
-         *
-         * Each candidate gets:
-         *
-         * frequency
-         * source bonus
-         * length preference
-         */
-        data class Candidate(
-            val word: String,
-            val frequency: Int,
-            val sourceBonus: Int
-        )
+        if (normalizedPrefix.isEmpty()) {
+            return emptyList()
+        }
 
         val candidates =
-            mutableMapOf<String, Candidate>()
+            byFirstLetter[
+                normalizedPrefix.first()
+            ]
+                ?: return emptyList()
 
-        /*
-         * ----------------------------------------------------
-         * BUNDLED DICTIONARY
-         * ----------------------------------------------------
-         */
-
-        words
+        return candidates
             .asSequence()
             .filter {
-                it.startsWith(lowerPrefix) &&
-                        it != lowerPrefix
+                it.startsWith(
+                    normalizedPrefix
+                )
             }
-            .forEach { word ->
-
-                candidates[word] =
-                    Candidate(
-                        word = word,
-                        frequency = 0,
-                        sourceBonus = 10
-                    )
-            }
-
-        /*
-         * ----------------------------------------------------
-         * CONTRACTIONS
-         * ----------------------------------------------------
-         */
-
-        contractions
-            .asSequence()
             .filter {
-                it.startsWith(lowerPrefix) &&
-                        it != lowerPrefix
-            }
-            .forEach { word ->
-
-                candidates[word] =
-                    Candidate(
-                        word = word,
-                        frequency = 0,
-                        sourceBonus = 25
-                    )
-            }
-
-        /*
-         * ----------------------------------------------------
-         * USER LEARNED WORDS
-         * ----------------------------------------------------
-         *
-         * Learned words receive a large ranking advantage.
-         */
-
-        learnedWords
-            .filterKeys {
-                it.startsWith(lowerPrefix) &&
-                        it != lowerPrefix
-            }
-            .forEach { (word, frequency) ->
-
-                candidates[word] =
-                    Candidate(
-                        word = word,
-                        frequency = frequency,
-                        sourceBonus = 100
-                    )
-            }
-
-        /*
-         * ----------------------------------------------------
-         * SMART RANKING
-         * ----------------------------------------------------
-         *
-         * Score =
-         *
-         * frequency
-         * + source bonus
-         * + prefix match quality
-         * - length penalty
-         */
-
-        return candidates.values
-            .map { candidate ->
-
-                val remainingLength =
-                    candidate.word.length -
-                            lowerPrefix.length
-
-                val lengthPenalty =
-                    remainingLength.coerceAtMost(10)
-
-                val score =
-                    (candidate.frequency * 20) +
-                            candidate.sourceBonus -
-                            lengthPenalty
-
-                candidate.word to score
+                it != normalizedPrefix
             }
             .sortedWith(
-                compareByDescending<Pair<String, Int>> {
-                    it.second
+                compareBy<String> {
+
+                    /*
+                     * Learned words get priority.
+                     *
+                     * This makes words the user repeatedly
+                     * types appear more naturally.
+                     */
+                    if (
+                        learnedWords.contains(it)
+                    ) {
+                        0
+                    } else {
+                        1
+                    }
+
                 }.thenBy {
-                    it.first.length
+
+                    /*
+                     * Prefer shorter completions first.
+                     */
+                    it.length
+
                 }
             )
             .take(limit)
-            .map {
-                it.first
-            }
+            .toList()
     }
 
-    /**
-     * Find spelling corrections.
-     */
     override fun suggestCorrections(
         word: String,
         limit: Int
@@ -376,81 +253,179 @@ class EnglishLexicon(
             return emptyList()
         }
 
-        if (isValidWord(word)) {
+        val normalized =
+            normalize(word)
+
+        if (isValidWord(normalized)) {
             return emptyList()
         }
 
-        val lowerWord =
-            word.lowercase()
-
-        val allCandidates =
-            words +
-                    contractions +
-                    learnedWords.keys
-
-        return allCandidates
+        return allWords
             .asSequence()
-
-            /*
-             * Avoid ridiculous corrections.
-             */
             .filter {
                 abs(
                     it.length -
-                            lowerWord.length
+                            normalized.length
                 ) <= 2
             }
-
-            /*
-             * Calculate edit distance.
-             */
             .map {
-                val distance =
-                    levenshteinDistance(
-                        lowerWord,
-                        it
-                    )
-
-                Triple(
-                    it,
-                    distance,
-                    learnedWords[it] ?: 0
+                it to levenshteinDistance(
+                    normalized,
+                    it
                 )
             }
-
-            /*
-             * Only reasonably close words.
-             */
             .filter {
-                it.second <= 2
+                (_, distance) ->
+                distance <= 2
             }
-
-            /*
-             * Rank:
-             *
-             * 1. Closest spelling
-             * 2. Most frequently learned
-             * 3. Shorter word
-             */
             .sortedWith(
-                compareBy<
-                    Triple<String, Int, Int>
-                    > {
+                compareBy<Pair<String, Int>> {
+
                     it.second
-                }.thenByDescending {
-                    it.third
+
                 }.thenBy {
-                    it.first.length
+
+                    /*
+                     * Learned words are preferred
+                     * when correction distance is equal.
+                     */
+                    if (
+                        learnedWords.contains(
+                            it.first
+                        )
+                    ) {
+                        0
+                    } else {
+                        1
+                    }
                 }
             )
-
-            .take(limit)
-
             .map {
                 it.first
             }
-
+            .distinct()
+            .take(limit)
             .toList()
+    }
+
+    /**
+     * Teach CipherKeys a new word.
+     *
+     * This is called when the user repeatedly types a word
+     * that wasn't originally in the bundled dictionary.
+     */
+    override fun learnWord(
+        word: String
+    ) {
+
+        val normalized =
+            normalize(word)
+
+        /*
+         * Don't learn extremely short fragments.
+         */
+        if (
+            normalized.length < 2
+        ) {
+            return
+        }
+
+        /*
+         * Don't store something already present
+         * in the bundled dictionary.
+         */
+        if (
+            bundledWords.contains(
+                normalized
+            ) ||
+            contractions.contains(
+                normalized
+            )
+        ) {
+            return
+        }
+
+        /*
+         * Only learn words containing letters,
+         * apostrophes or hyphens.
+         */
+        if (
+            !normalized.all {
+                it.isLetter() ||
+                        it == '\'' ||
+                        it == '-'
+            }
+        ) {
+            return
+        }
+
+        learnedWords.add(
+            normalized
+        )
+
+        preferences
+            .edit()
+            .putStringSet(
+                "learned_words",
+                learnedWords
+            )
+            .apply()
+    }
+
+    /**
+     * Normalizes dictionary words without destroying
+     * apostrophes used by contractions.
+     */
+    private fun normalize(
+        word: String
+    ): String {
+
+        return word
+            .trim()
+            .lowercase()
+            .replace(
+                '’',
+                '\''
+            )
+    }
+
+    /**
+     * Loads the bundled dictionary.
+     */
+    private fun loadBundledWords(
+        context: Context,
+        assetPath: String
+    ): Set<String> {
+
+        return try {
+
+            context.assets
+                .open(assetPath)
+                .use { stream ->
+
+                    BufferedReader(
+                        InputStreamReader(
+                            stream
+                        )
+                    ).useLines { lines ->
+
+                        lines
+                            .map {
+                                normalize(it)
+                            }
+                            .filter {
+                                it.isNotEmpty()
+                            }
+                            .toSet()
+                    }
+                }
+
+        } catch (
+            e: Exception
+        ) {
+
+            emptySet()
+        }
     }
 
     /**
@@ -462,23 +437,33 @@ class EnglishLexicon(
     ): Int {
 
         val dp =
-            Array(a.length + 1) {
+            Array(
+                a.length + 1
+            ) {
                 IntArray(
                     b.length + 1
                 )
             }
 
-        for (i in 0..a.length) {
+        for (
+            i in 0..a.length
+        ) {
             dp[i][0] = i
         }
 
-        for (j in 0..b.length) {
+        for (
+            j in 0..b.length
+        ) {
             dp[0][j] = j
         }
 
-        for (i in 1..a.length) {
+        for (
+            i in 1..a.length
+        ) {
 
-            for (j in 1..b.length) {
+            for (
+                j in 1..b.length
+            ) {
 
                 val cost =
                     if (
@@ -499,6 +484,10 @@ class EnglishLexicon(
             }
         }
 
-        return dp[a.length][b.length]
+        return dp[
+            a.length
+        ][
+            b.length
+        ]
     }
 }
