@@ -168,16 +168,21 @@ class CipherKeysIME :
             )
 
         contextPredictor =
-            ContextPredictor(
-                applicationContext
-            )
+    ContextPredictor(
+        applicationContext
+    )
 
-        smartSuggestionEngine =
-            SmartSuggestionEngine(
-                dictionary,
-                contextPredictor
-            )
+val phrasePredictor =
+    PhrasePredictor(
+        applicationContext
+    )
 
+smartSuggestionEngine =
+    SmartSuggestionEngine(
+        dictionary,
+        contextPredictor,
+        phrasePredictor
+    )
         recentEmojiStore =
             RecentEmojiStore(
                 applicationContext
