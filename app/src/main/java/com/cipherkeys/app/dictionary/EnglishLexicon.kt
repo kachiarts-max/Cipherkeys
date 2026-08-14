@@ -6,15 +6,14 @@ import java.io.InputStreamReader
 import kotlin.math.abs
 
 /**
- * CipherKeys English dictionary.
+ * Smart local dictionary for CipherKeys.
  *
- * Combines:
- * 1. Bundled English words
- * 2. Common contractions
- * 3. User-learned words
+ * Sources:
+ * 1. Bundled English dictionary
+ * 2. Common English contractions
+ * 3. User-learned vocabulary
  *
- * Everything is stored locally on the device.
- * Nothing is uploaded to a server.
+ * User words are stored locally on the device.
  */
 class EnglishLexicon(
     context: Context,
@@ -22,15 +21,16 @@ class EnglishLexicon(
 ) : Dictionary {
 
     private val preferences =
-        context.getSharedPreferences("cipherkeys_vocabulary", Context.MODE_PRIVATE)
+        context.getSharedPreferences(
+            "cipherkeys_vocabulary",
+            Context.MODE_PRIVATE
+        )
 
-    private val words: Set<String> = loadWords(context, assetPath)
+    private val words: Set<String> =
+        loadWords(context, assetPath)
 
     /**
      * Common English contractions.
-     *
-     * These are included separately because a compact dictionary file may not
-     * contain them.
      */
     private val contractions = setOf(
         "I'm", "I've", "I'll", "I'd",
@@ -48,70 +48,105 @@ class EnglishLexicon(
         "when's", "when'd",
         "why's",
         "how's",
+
         "isn't",
         "aren't",
         "wasn't",
         "weren't",
+
         "haven't",
         "hasn't",
         "hadn't",
+
         "don't",
         "doesn't",
         "didn't",
+
         "can't",
         "couldn't",
+
         "won't",
         "wouldn't",
+
         "shouldn't",
         "mustn't",
         "mightn't",
         "needn't",
         "shan't",
+
         "let's"
     ).map { it.lowercase() }
 
     /**
-     * User vocabulary with usage counts.
+     * Word -> usage count.
      *
      * Example:
-     * hello=5
-     * cipherkeys=12
-     * bro=7
+     *
+     * cipherkeys = 20
+     * hello = 12
+     * bro = 7
      */
-    private val learnedWords: MutableMap<String, Int> = loadLearnedWords()
+    private val learnedWords: MutableMap<String, Int> =
+        loadLearnedWords()
 
+    /**
+     * Loads the bundled dictionary.
+     */
     private fun loadWords(
         context: Context,
         assetPath: String
     ): Set<String> {
+
         return try {
+
             context.assets.open(assetPath).use { stream ->
-                BufferedReader(InputStreamReader(stream)).useLines { lines ->
+
+                BufferedReader(
+                    InputStreamReader(stream)
+                ).useLines { lines ->
+
                     lines
-                        .map { it.trim().lowercase() }
-                        .filter { it.isNotEmpty() }
+                        .map {
+                            it.trim().lowercase()
+                        }
+                        .filter {
+                            it.isNotEmpty()
+                        }
                         .toSet()
                 }
             }
+
         } catch (e: Exception) {
+
             emptySet()
         }
     }
 
+    /**
+     * Loads previously learned words.
+     */
     private fun loadLearnedWords(): MutableMap<String, Int> {
-        val saved = preferences.getStringSet(
-            "learned_words",
-            emptySet()
-        ) ?: emptySet()
 
-        val result = mutableMapOf<String, Int>()
+        val saved =
+            preferences.getStringSet(
+                "learned_words",
+                emptySet()
+            ) ?: emptySet()
+
+        val result =
+            mutableMapOf<String, Int>()
 
         saved.forEach { entry ->
-            val parts = entry.split("|", limit = 2)
+
+            val parts =
+                entry.split("|", limit = 2)
 
             if (parts.size == 2) {
+
                 val word = parts[0]
-                val count = parts[1].toIntOrNull() ?: 1
+
+                val count =
+                    parts[1].toIntOrNull() ?: 1
 
                 if (word.isNotBlank()) {
                     result[word] = count
@@ -122,123 +157,299 @@ class EnglishLexicon(
         return result
     }
 
+    /**
+     * Saves learned vocabulary.
+     */
     private fun saveLearnedWords() {
-        val encoded = learnedWords.map { (word, count) ->
-            "$word|$count"
-        }.toSet()
+
+        val encoded =
+            learnedWords.map { (word, count) ->
+                "$word|$count"
+            }.toSet()
 
         preferences.edit()
-            .putStringSet("learned_words", encoded)
+            .putStringSet(
+                "learned_words",
+                encoded
+            )
             .apply()
     }
 
+    /**
+     * Determines whether a word is known.
+     */
     override fun isValidWord(word: String): Boolean {
+
         if (word.isBlank()) return false
 
-        val normalized = word.lowercase()
+        val normalized =
+            word.lowercase()
 
         return normalized in words ||
                 normalized in contractions ||
                 learnedWords.containsKey(normalized)
     }
 
+    /**
+     * Teach CipherKeys a new word.
+     *
+     * Every time the user completes a word,
+     * its frequency increases.
+     */
     override fun learnWord(word: String) {
-        val normalized = word
-            .trim()
-            .lowercase()
 
-        // Ignore very short/non-word entries.
+        val normalized =
+            word
+                .trim()
+                .lowercase()
+
         if (normalized.length < 2) return
 
-        // Only learn words containing letters.
-        if (!normalized.any { it.isLetter() }) return
+        /*
+         * Don't learn something that contains no letters.
+         */
+        if (!normalized.any { it.isLetter() }) {
+            return
+        }
 
-        val newCount = (learnedWords[normalized] ?: 0) + 1
+        val current =
+            learnedWords[normalized] ?: 0
 
-        learnedWords[normalized] = newCount
+        learnedWords[normalized] =
+            current + 1
 
         saveLearnedWords()
     }
 
+    /**
+     * Generate intelligent autocomplete suggestions.
+     */
     override fun suggestCompletions(
         prefix: String,
         limit: Int
     ): List<String> {
 
-        if (prefix.isBlank()) return emptyList()
+        if (prefix.isBlank()) {
+            return emptyList()
+        }
 
-        val lowerPrefix = prefix.lowercase()
+        val lowerPrefix =
+            prefix.lowercase()
 
-        val candidates = mutableMapOf<String, Int>()
+        /*
+         * Candidate information.
+         *
+         * Each candidate gets:
+         *
+         * frequency
+         * source bonus
+         * length preference
+         */
+        data class Candidate(
+            val word: String,
+            val frequency: Int,
+            val sourceBonus: Int
+        )
 
-        // Bundled dictionary words.
+        val candidates =
+            mutableMapOf<String, Candidate>()
+
+        /*
+         * ----------------------------------------------------
+         * BUNDLED DICTIONARY
+         * ----------------------------------------------------
+         */
+
         words
             .asSequence()
-            .filter { it.startsWith(lowerPrefix) && it != lowerPrefix }
-            .forEach {
-                candidates[it] = 0
+            .filter {
+                it.startsWith(lowerPrefix) &&
+                        it != lowerPrefix
+            }
+            .forEach { word ->
+
+                candidates[word] =
+                    Candidate(
+                        word = word,
+                        frequency = 0,
+                        sourceBonus = 10
+                    )
             }
 
-        // Contractions.
+        /*
+         * ----------------------------------------------------
+         * CONTRACTIONS
+         * ----------------------------------------------------
+         */
+
         contractions
             .asSequence()
-            .filter { it.startsWith(lowerPrefix) && it != lowerPrefix }
-            .forEach {
-                candidates[it] = 0
+            .filter {
+                it.startsWith(lowerPrefix) &&
+                        it != lowerPrefix
+            }
+            .forEach { word ->
+
+                candidates[word] =
+                    Candidate(
+                        word = word,
+                        frequency = 0,
+                        sourceBonus = 25
+                    )
             }
 
-        // Learned words get their actual usage count.
+        /*
+         * ----------------------------------------------------
+         * USER LEARNED WORDS
+         * ----------------------------------------------------
+         *
+         * Learned words receive a large ranking advantage.
+         */
+
         learnedWords
             .filterKeys {
-                it.startsWith(lowerPrefix) && it != lowerPrefix
+                it.startsWith(lowerPrefix) &&
+                        it != lowerPrefix
             }
-            .forEach { (word, count) ->
-                candidates[word] = count
+            .forEach { (word, frequency) ->
+
+                candidates[word] =
+                    Candidate(
+                        word = word,
+                        frequency = frequency,
+                        sourceBonus = 100
+                    )
             }
 
-        return candidates
-            .entries
+        /*
+         * ----------------------------------------------------
+         * SMART RANKING
+         * ----------------------------------------------------
+         *
+         * Score =
+         *
+         * frequency
+         * + source bonus
+         * + prefix match quality
+         * - length penalty
+         */
+
+        return candidates.values
+            .map { candidate ->
+
+                val remainingLength =
+                    candidate.word.length -
+                            lowerPrefix.length
+
+                val lengthPenalty =
+                    remainingLength.coerceAtMost(10)
+
+                val score =
+                    (candidate.frequency * 20) +
+                            candidate.sourceBonus -
+                            lengthPenalty
+
+                candidate.word to score
+            }
             .sortedWith(
-                compareByDescending<Map.Entry<String, Int>> { it.value }
-                    .thenBy { it.key.length }
+                compareByDescending<Pair<String, Int>> {
+                    it.second
+                }.thenBy {
+                    it.first.length
+                }
             )
             .take(limit)
-            .map { it.key }
+            .map {
+                it.first
+            }
     }
 
+    /**
+     * Find spelling corrections.
+     */
     override fun suggestCorrections(
         word: String,
         limit: Int
     ): List<String> {
 
-        if (word.isBlank() || isValidWord(word)) {
+        if (word.isBlank()) {
             return emptyList()
         }
 
-        val lowerWord = word.lowercase()
+        if (isValidWord(word)) {
+            return emptyList()
+        }
+
+        val lowerWord =
+            word.lowercase()
 
         val allCandidates =
-            words + contractions + learnedWords.keys
+            words +
+                    contractions +
+                    learnedWords.keys
 
         return allCandidates
             .asSequence()
+
+            /*
+             * Avoid ridiculous corrections.
+             */
             .filter {
-                abs(it.length - lowerWord.length) <= 2
+                abs(
+                    it.length -
+                            lowerWord.length
+                ) <= 2
             }
+
+            /*
+             * Calculate edit distance.
+             */
             .map {
-                it to levenshteinDistance(lowerWord, it)
+                val distance =
+                    levenshteinDistance(
+                        lowerWord,
+                        it
+                    )
+
+                Triple(
+                    it,
+                    distance,
+                    learnedWords[it] ?: 0
+                )
             }
-            .filter { (_, distance) ->
-                distance <= 2
+
+            /*
+             * Only reasonably close words.
+             */
+            .filter {
+                it.second <= 2
             }
+
+            /*
+             * Rank:
+             *
+             * 1. Closest spelling
+             * 2. Most frequently learned
+             * 3. Shorter word
+             */
             .sortedWith(
-                compareBy<Pair<String, Int>> { it.second }
-                    .thenByDescending {
-                        learnedWords[it.first] ?: 0
-                    }
+                compareBy<
+                    Triple<String, Int, Int>
+                    > {
+                    it.second
+                }.thenByDescending {
+                    it.third
+                }.thenBy {
+                    it.first.length
+                }
             )
+
             .take(limit)
-            .map { it.first }
+
+            .map {
+                it.first
+            }
+
             .toList()
     }
 
@@ -250,9 +461,12 @@ class EnglishLexicon(
         b: String
     ): Int {
 
-        val dp = Array(a.length + 1) {
-            IntArray(b.length + 1)
-        }
+        val dp =
+            Array(a.length + 1) {
+                IntArray(
+                    b.length + 1
+                )
+            }
 
         for (i in 0..a.length) {
             dp[i][0] = i
@@ -263,16 +477,25 @@ class EnglishLexicon(
         }
 
         for (i in 1..a.length) {
+
             for (j in 1..b.length) {
 
                 val cost =
-                    if (a[i - 1] == b[j - 1]) 0 else 1
+                    if (
+                        a[i - 1] ==
+                        b[j - 1]
+                    ) {
+                        0
+                    } else {
+                        1
+                    }
 
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,
-                    dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + cost
-                )
+                dp[i][j] =
+                    minOf(
+                        dp[i - 1][j] + 1,
+                        dp[i][j - 1] + 1,
+                        dp[i - 1][j - 1] + cost
+                    )
             }
         }
 
