@@ -1,30 +1,27 @@
 package com.cipherkeys.app.dictionary
 
 /**
- * Everything the keyboard's suggestion system and spell-checker
- * need from a word source.
+ * Everything CipherKeys needs from a word source.
  *
  * The dictionary supports:
  *
  * - Word validation
- * - Autocomplete
+ * - Live word completion
  * - Spelling corrections
  * - Learning new words
  *
- * Implementations can be backed by a bundled dictionary,
- * user vocabulary, or a future on-device language model.
+ * Implementations can use a bundled dictionary, locally learned
+ * vocabulary, or a future on-device language model.
  */
 interface Dictionary {
 
     /**
-     * Returns true when [word] is recognized as a valid word.
+     * Returns true when [word] is recognized.
      */
     fun isValidWord(word: String): Boolean
 
     /**
-     * Returns words beginning with [prefix].
-     *
-     * Results should be ranked by usefulness/frequency where possible.
+     * Returns words that begin with [prefix].
      */
     fun suggestCompletions(
         prefix: String,
@@ -40,10 +37,10 @@ interface Dictionary {
     ): List<String>
 
     /**
-     * Teaches the dictionary a word the user has actually used.
+     * Teaches CipherKeys a new word.
      *
-     * This allows CipherKeys to gradually learn personal vocabulary
-     * that may not exist in the bundled dictionary.
+     * Learned words are stored locally on the device so they
+     * remain available the next time the keyboard is opened.
      */
     fun learnWord(word: String)
 }
