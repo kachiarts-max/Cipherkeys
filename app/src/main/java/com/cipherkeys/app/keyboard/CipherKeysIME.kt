@@ -904,24 +904,29 @@ smartSuggestionEngine =
      */
     private fun updateSuggestions() {
 
-        if (
-            !::keyboardView.isInitialized
-        ) {
-            return
-        }
+    if (!::keyboardView.isInitialized) {
+        return
+    }
 
-        val prefix =
-            rawWordBuffer
-                .toString()
+    val prefix = rawWordBuffer
+        .toString()
+        .trim()
+        .lowercase()
 
-        if (
-            prefix.isBlank()
-        ) {
+    if (prefix.isBlank()) {
+        keyboardView.setSuggestions(emptyList())
+        return
+    }
 
-            updateContextSuggestions()
+    // TEMPORARY UI TEST
+    val testSuggestions = listOf(
+        "${prefix}nk",
+        "${prefix}nks",
+        "${prefix}nky"
+    )
 
-            return
-        }
+    keyboardView.setSuggestions(testSuggestions)
+}
 
         val suggestions =
             smartSuggestionEngine.suggest(
