@@ -441,24 +441,29 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
     override fun onSpace() {
 
-        /*
-         * Finish and learn the word before
-         * inserting the space.
-         */
-        completeCurrentWord()
+    /*
+     * Correct the word before committing
+     * the space.
+     */
+    maybeAutocorrectBeforeBoundary()
 
-        currentInputConnection?.commitText(
-            " ",
-            1
-        )
+    /*
+     * Finish and learn the word.
+     */
+    completeCurrentWord()
 
-        performFeedback()
+    currentInputConnection?.commitText(
+        " ",
+        1
+    )
 
-        /*
-         * Show predictions for the next word.
-         */
-        updateContextSuggestions()
-    }
+    performFeedback()
+
+    /*
+     * Show predictions for the next word.
+     */
+    updateContextSuggestions()
+}
 
     override fun onBackspace() {
 
