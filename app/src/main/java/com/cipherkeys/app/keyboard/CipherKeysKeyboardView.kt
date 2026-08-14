@@ -1,4 +1,4 @@
-    package com.cipherkeys.app.keyboard
+package com.cipherkeys.app.keyboard
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -9,6 +9,8 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.StateListDrawable
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -180,9 +182,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         "©"
     )
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // INIT
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     init {
         orientation = VERTICAL
@@ -498,103 +500,12 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         }
 
         /*
-         * Symbols button.
+         * 123 and Emoji are intentionally NOT added to this toolbar.
          *
-         * This does NOT change the keyboard mode.
-         * It only changes the visual keyboard surface.
+         * They are placed in the bottom keyboard row instead.
+         * This also prevents the same Android View from being attached
+         * to two different parents.
          */
-        symbolsToggleButton =
-            Button(context).apply {
-
-                text =
-                    "123"
-
-                textSize =
-                    13f
-
-                isAllCaps =
-                    false
-
-                minimumWidth =
-                    0
-
-                minimumHeight =
-                    0
-
-                setPadding(
-                    dp(10),
-                    dp(2),
-                    dp(10),
-                    dp(2)
-                )
-
-                setOnClickListener {
-                    showSymbols()
-                }
-            }
-
-        registerKeyButton(
-            symbolsToggleButton
-        )
-
-        row.addView(
-            symbolsToggleButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply {
-                marginEnd =
-                    dp(4)
-            }
-        )
-
-        /*
-         * Emoji button.
-         */
-        emojiToggleButton =
-            Button(context).apply {
-
-                text =
-                    "\uD83D\uDE00"
-
-                textSize =
-                    16f
-
-                isAllCaps =
-                    false
-
-                minimumWidth =
-                    0
-
-                minimumHeight =
-                    0
-
-                setPadding(
-                    dp(12),
-                    dp(2),
-                    dp(12),
-                    dp(2)
-                )
-
-                setOnClickListener {
-                    toggleEmojiPanel()
-                }
-            }
-
-        registerKeyButton(
-            emojiToggleButton
-        )
-
-        row.addView(
-            emojiToggleButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply {
-                marginEnd =
-                    dp(4)
-            }
-        )
 
         scroll.addView(row)
 
@@ -971,11 +882,11 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
 
                 minimumHeight =
                     0
-
-                setOnClickListener {
-                    listener?.onBackspace()
-                }
             }
+
+        attachBackspaceLongPress(
+            backspaceButton
+        )
 
         registerKeyButton(
             backspaceButton
@@ -1003,6 +914,10 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
     }
 
+    // =========================================================================
+    // BOTTOM ROW
+    // =========================================================================
+
     private fun buildBottomRow(
         parent: ViewGroup
     ) {
@@ -1023,6 +938,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                     )
             }
 
+        /*
+         * Comma
+         */
         row.addView(
             makeCharKey(
                 ",",
@@ -1032,33 +950,132 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 0,
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 1f
-            )
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
+        )
+
+        /*
+         * 123 / ABC
+         *
+         * This is intentionally placed here instead of the toolbar.
+         */
+        symbolsToggleButton =
+            Button(context).apply {
+
+                text =
+                    "123"
+
+                textSize =
+                    12f
+
+                isAllCaps =
+                    false
+
+                minimumWidth =
+                    0
+
+                minimumHeight =
+                    0
+
+                setPadding(
+                    dp(2),
+                    0,
+                    dp(2),
+                    0
+                )
+
+                setOnClickListener {
+                    showSymbols()
+                }
+            }
+
+        registerKeyButton(
+            symbolsToggleButton
         )
 
         row.addView(
-            makeCharKey(
-                "?",
-                false
-            ),
+            symbolsToggleButton,
             LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 1f
-            )
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
+        )
+
+        /*
+         * Emoji
+         *
+         * This is intentionally placed here instead of the toolbar.
+         */
+        emojiToggleButton =
+            Button(context).apply {
+
+                text =
+                    "\uD83D\uDE00"
+
+                textSize =
+                    16f
+
+                isAllCaps =
+                    false
+
+                minimumWidth =
+                    0
+
+                minimumHeight =
+                    0
+
+                setPadding(
+                    dp(2),
+                    0,
+                    dp(2),
+                    0
+                )
+
+                setOnClickListener {
+                    toggleEmojiPanel()
+                }
+            }
+
+        registerKeyButton(
+            emojiToggleButton
         )
 
         row.addView(
-            makeCharKey(
-                "!",
-                false
-            ),
+            emojiToggleButton,
             LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 1f
-            )
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
         )
 
+        /*
+         * Space
+         */
         val spaceButton =
             Button(context).apply {
 
@@ -1076,6 +1093,13 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
 
                 minimumHeight =
                     0
+
+                setPadding(
+                    dp(2),
+                    0,
+                    dp(2),
+                    0
+                )
 
                 setOnClickListener {
                     listener?.onSpace()
@@ -1103,6 +1127,9 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
         )
 
+        /*
+         * Period
+         */
         row.addView(
             makeCharKey(
                 ".",
@@ -1112,9 +1139,20 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                 0,
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 1f
-            )
+            ).apply {
+
+                setMargins(
+                    dp(1),
+                    dp(1),
+                    dp(1),
+                    dp(1)
+                )
+            }
         )
 
+        /*
+         * Enter
+         */
         val enterButton =
             Button(context).apply {
 
@@ -1159,6 +1197,105 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         parent.addView(
             row
         )
+    }
+
+    // =========================================================================
+    // BACKSPACE LONG-PRESS / REPEAT
+    // =========================================================================
+
+    /**
+     * Gives backspace normal tap behavior plus continuous deletion while held.
+     *
+     * First deletion happens immediately.
+     * Holding for approximately 450ms starts repeated deletion.
+     */
+    private fun attachBackspaceLongPress(
+        button: Button
+    ) {
+
+        val handler =
+            Handler(
+                Looper.getMainLooper()
+            )
+
+        var isRepeating = false
+
+        val repeatRunnable =
+            object : Runnable {
+
+                override fun run() {
+
+                    if (!isRepeating) {
+                        return
+                    }
+
+                    listener?.onBackspace()
+
+                    handler.postDelayed(
+                        this,
+                        55L
+                    )
+                }
+            }
+
+        button.setOnTouchListener { view, event ->
+
+            when (
+                event.actionMasked
+            ) {
+
+                MotionEvent.ACTION_DOWN -> {
+
+                    view.isPressed = true
+
+                    isRepeating = true
+
+                    /*
+                     * Normal immediate backspace.
+                     */
+                    listener?.onBackspace()
+
+                    /*
+                     * Start continuous deletion after
+                     * a proper long press.
+                     */
+                    handler.postDelayed(
+                        repeatRunnable,
+                        450L
+                    )
+
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+
+                    isRepeating = false
+
+                    handler.removeCallbacks(
+                        repeatRunnable
+                    )
+
+                    view.isPressed = false
+
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+
+                    isRepeating = false
+
+                    handler.removeCallbacks(
+                        repeatRunnable
+                    )
+
+                    view.isPressed = false
+
+                    true
+                }
+
+                else -> true
+            }
+        }
     }
 
     // =========================================================================
@@ -1276,41 +1413,26 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             symbolsContainer
         )
 
-        /*
-         * First symbol row.
-         */
         buildSymbolRow(
             symbolsContainer,
             symbolRow1
         )
 
-        /*
-         * Second symbol row.
-         */
         buildSymbolRow(
             symbolsContainer,
             symbolRow2
         )
 
-        /*
-         * Third symbol row.
-         */
         buildSymbolRow(
             symbolsContainer,
             symbolRow3
         )
 
-        /*
-         * Fourth symbol row.
-         */
         buildSymbolRow(
             symbolsContainer,
             symbolRow4
         )
 
-        /*
-         * Bottom control row.
-         */
         buildSymbolsBottomRow(
             symbolsContainer
         )
@@ -1403,13 +1525,6 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
                         symbol.isNotEmpty()
                     ) {
 
-                        /*
-                         * Only the first character is sent because
-                         * onCharKey() accepts a Char.
-                         *
-                         * All symbols in this keyboard are one
-                         * character long.
-                         */
                         listener?.onCharKey(
                             symbol[0]
                         )
@@ -1449,7 +1564,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
             }
 
         /*
-         * ABC button.
+         * ABC
          */
         val abcButton =
             Button(context).apply {
@@ -1496,7 +1611,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         /*
-         * Comma.
+         * Comma
          */
         row.addView(
             makeSymbolKey(","),
@@ -1516,7 +1631,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         /*
-         * Space.
+         * Space
          */
         val spaceButton =
             Button(context).apply {
@@ -1563,7 +1678,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         /*
-         * Period.
+         * Period
          */
         row.addView(
             makeSymbolKey("."),
@@ -1583,7 +1698,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         /*
-         * Backspace.
+         * Backspace with long-press repeat.
          */
         val backspaceButton =
             Button(context).apply {
@@ -1599,11 +1714,11 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
 
                 minimumHeight =
                     0
-
-                setOnClickListener {
-                    listener?.onBackspace()
-                }
             }
+
+        attachBackspaceLongPress(
+            backspaceButton
+        )
 
         registerKeyButton(
             backspaceButton
@@ -1627,7 +1742,7 @@ class CipherKeysKeyboardView(context: Context) : LinearLayout(context) {
         )
 
         /*
-         * Enter.
+         * Enter
          */
         val enterButton =
             Button(context).apply {
