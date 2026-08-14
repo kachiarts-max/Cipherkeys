@@ -19,6 +19,7 @@ import com.cipherkeys.app.decoder.CipherKeysDecoder
 import com.cipherkeys.app.dictionary.ContextPredictor
 import com.cipherkeys.app.dictionary.Dictionary
 import com.cipherkeys.app.dictionary.EnglishLexicon
+import com.cipherkeys.app.dictionary.PhrasePredictor
 import com.cipherkeys.app.dictionary.SmartSuggestionEngine
 import com.cipherkeys.app.emoji.RecentEmojiStore
 import com.cipherkeys.app.encoder.ClassicLeetEncoder
