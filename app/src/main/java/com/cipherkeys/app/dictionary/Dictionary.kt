@@ -1,27 +1,30 @@
-
 package com.cipherkeys.app.dictionary
 
 /**
- * Everything the keyboard's suggestion strip and spell-checker need from a word source.
- * Kept intentionally small and swappable: today it's backed by a bundled word list
- * (see [EnglishLexicon]) plus locally-learned words (see [UserVocabulary]), but nothing
- * about the IME depends on that - a future, larger on-device model could implement this
- * same interface without touching [com.cipherkeys.app.keyboard.CipherKeysIME].
+ * Dictionary contract used by CipherKeys for:
+ * - word validation
+ * - autocomplete suggestions
+ * - spelling corrections
+ * - learning words typed by the user
  */
 interface Dictionary {
 
-    /** True if [word] (case-insensitive) is a recognized word. */
+    /** True if [word] is a recognized or learned word. */
     fun isValidWord(word: String): Boolean
 
     /**
-     * Words that start with [prefix] (case-insensitive), for the live suggestion strip
-     * as the user types. Shortest/most common matches first where possible.
+     * Returns likely completions for [prefix].
+     * Results should prioritize learned/frequently used words.
      */
     fun suggestCompletions(prefix: String, limit: Int = 3): List<String>
 
     /**
-     * Likely intended words for a misspelled [word] (case-insensitive), ranked by edit
-     * distance. Empty if [word] is already valid or nothing close enough was found.
+     * Returns likely corrections for a misspelled word.
      */
     fun suggestCorrections(word: String, limit: Int = 3): List<String>
+
+    /**
+     * Learns a word locally so it can become a future suggestion.
+     */
+    fun learnWord(word: String)
 }
