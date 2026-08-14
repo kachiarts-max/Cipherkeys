@@ -11,10 +11,8 @@ import kotlin.math.abs
  * Combines:
  *
  * - Bundled English dictionary
- * - Common contractions
+ * - Smart contractions
  * - Personal user vocabulary
- *
- * User vocabulary is stored locally on the device.
  */
 class EnglishLexicon(
     context: Context,
@@ -31,77 +29,15 @@ class EnglishLexicon(
         )
 
     /**
-     * Common English contractions.
-     *
-     * These are included so CipherKeys recognizes
-     * natural everyday typing.
-     */
-    private val contractions =
-        setOf(
-            "don't",
-            "doesn't",
-            "didn't",
-            "can't",
-            "cannot",
-            "couldn't",
-            "wouldn't",
-            "shouldn't",
-            "won't",
-            "isn't",
-            "aren't",
-            "wasn't",
-            "weren't",
-            "haven't",
-            "hasn't",
-            "hadn't",
-            "mustn't",
-            "mightn't",
-            "needn't",
-            "i'm",
-            "you're",
-            "he's",
-            "she's",
-            "it's",
-            "we're",
-            "they're",
-            "i've",
-            "you've",
-            "we've",
-            "they've",
-            "i'd",
-            "you'd",
-            "he'd",
-            "she'd",
-            "we'd",
-            "they'd",
-            "i'll",
-            "you'll",
-            "he'll",
-            "she'll",
-            "we'll",
-            "they'll",
-            "that's",
-            "there's",
-            "here's",
-            "what's",
-            "who's",
-            "let's"
-        )
-
-    /**
-     * Words grouped by first character.
-     *
-     * This avoids scanning the entire dictionary
-     * for normal completion searches.
+     * Words grouped by their first letter.
      */
     private val byFirstLetter: Map<Char, List<String>> =
-        words
-            .groupBy {
-                it.first()
-            }
+        words.groupBy {
+            it.first()
+        }
 
     /**
-     * Load the bundled dictionary.
+     * Load the bundled English dictionary.
      */
     private fun loadWords(
         context: Context,
@@ -136,7 +72,7 @@ class EnglishLexicon(
     }
 
     /**
-     * Check whether a word is recognized.
+     * Checks whether CipherKeys recognizes a word.
      */
     override fun isValidWord(
         word: String
@@ -149,40 +85,90 @@ class EnglishLexicon(
         val normalized =
             word.lowercase()
 
-        return words.contains(normalized) ||
-                contractions.contains(normalized) ||
-                userVocabulary.contains(normalized)
+        /*
+         * Normal dictionary.
+         */
+        if (words.contains(normalized)) {
+            return true
+        }
+
+        /*
+         * User vocabulary.
+         */
+        if (userVocabulary.contains(normalized)) {
+            return true
+        }
+
+        /*
+         * Natural contractions.
+         *
+         * Example:
+         *
+         * don't
+         * can't
+         * wouldn't
+         */
+        if (
+            SmartContractions.hasContraction(
+                normalized
+            )
+        ) {
+            return true
+        }
+
+        /*
+         * Also recognize the unpunctuated version.
+         *
+         * Example:
+         *
+         * dont
+         * cant
+         * wouldnt
+         */
+        if (
+            SmartContractions.convert(
+                normalized
+            ) != null
+        ) {
+            return true
+        }
+
+        return false
     }
 
     /**
-     * Teach CipherKeys a word.
+     * Teach CipherKeys a new word.
      */
     override fun learnWord(
         word: String
     ) {
 
-        userVocabulary.learnWord(word)
+        userVocabulary.learnWord(
+            word
+        )
     }
 
     /**
-     * Check whether a word came from the user's
-     * personal vocabulary.
+     * Check whether the user specifically
+     * learned this word.
      */
     override fun isUserLearnedWord(
         word: String
     ): Boolean {
 
-        return userVocabulary.contains(word)
+        return userVocabulary.contains(
+            word
+        )
     }
 
     /**
-     * Find words that begin with the supplied prefix.
+     * Suggest words while the user types.
      *
-     * Ranking:
+     * Combines:
      *
-     * 1. Frequently used personal words
-     * 2. Bundled dictionary words
-     * 3. Contractions
+     * 1. Personal vocabulary
+     * 2. Smart contractions
+     * 3. Normal English dictionary
      */
     override fun suggestCompletions(
         prefix: String,
@@ -197,16 +183,16 @@ class EnglishLexicon(
             prefix.lowercase()
 
         /*
-         * Personal vocabulary gets priority.
+         * Personal words.
          */
-        val learnedSuggestions =
+        val learned =
             userVocabulary.suggest(
                 lower,
                 limit
             )
 
         /*
-         * Normal dictionary completions.
+         * Normal dictionary.
          */
         val dictionarySuggestions =
             if (lower.isNotEmpty()) {
@@ -238,26 +224,41 @@ class EnglishLexicon(
             }
 
         /*
-         * Contraction completions.
+         * Smart contraction suggestions.
+         *
+         * Example:
+         *
+         * "dont" -> "don't"
+         * "cant" -> "can't"
+         * "woul" -> "wouldn't"
          */
         val contractionSuggestions =
-            contractions
+            SmartContractions
+                .all()
                 .asSequence()
-                .filter {
-                    it.startsWith(lower) &&
-                            it != lower
+                .filter { contraction ->
+
+                    contraction.startsWith(
+                        lower
+                    ) ||
+                            contraction
+                                .replace(
+                                    "'",
+                                    ""
+                                )
+                                .startsWith(
+                                    lower
+                                )
                 }
-                .sortedBy {
-                    it.length
-                }
+                .distinct()
                 .take(limit)
                 .toList()
 
         /*
-         * Combine everything and remove duplicates.
+         * Combine all sources.
          */
         return (
-            learnedSuggestions +
+            learned +
                     contractionSuggestions +
                     dictionarySuggestions
             )
@@ -266,7 +267,7 @@ class EnglishLexicon(
     }
 
     /**
-     * Find likely corrections.
+     * Find likely spelling corrections.
      */
     override fun suggestCorrections(
         word: String,
@@ -284,19 +285,41 @@ class EnglishLexicon(
             word.lowercase()
 
         /*
-         * Combine bundled words, contractions,
-         * and learned vocabulary.
+         * If the word is actually an unpunctuated
+         * contraction, prefer the contraction.
+         *
+         * Example:
+         *
+         * dont -> don't
+         * cant -> can't
+         */
+        val contraction =
+            SmartContractions
+                .convertPreservingCase(
+                    word
+                )
+
+        if (contraction != null) {
+
+            return listOf(
+                contraction
+            )
+        }
+
+        /*
+         * Search normal + learned vocabulary.
          */
         val candidates =
             (
                 words +
-                        contractions +
-                        userVocabulary.allWords()
+                        userVocabulary.allWords() +
+                        SmartContractions.all()
                 )
                 .asSequence()
                 .filter {
                     abs(
-                        it.length - lower.length
+                        it.length -
+                                lower.length
                     ) <= 2
                 }
                 .distinct()
