@@ -6,21 +6,21 @@ import java.io.InputStreamReader
 import kotlin.math.abs
 
 /**
- * Main English dictionary for CipherKeys.
+ * Main CipherKeys dictionary.
  *
  * Combines:
  *
- * - Bundled English dictionary
- * - Smart contractions
- * - Personal user vocabulary
+ * 1. Bundled English dictionary
+ * 2. User-learned vocabulary
+ *
+ * This means CipherKeys can recognize normal English
+ * while also learning words that aren't in the original
+ * dictionary.
  */
 class EnglishLexicon(
     context: Context,
     assetPath: String = "dictionary/common_words.txt"
 ) : Dictionary {
-
-    private val userVocabulary =
-        UserVocabulary(context)
 
     private val words: Set<String> =
         loadWords(
@@ -28,8 +28,14 @@ class EnglishLexicon(
             assetPath
         )
 
+    private val userVocabulary =
+        UserVocabulary(context)
+
     /**
-     * Words grouped by their first letter.
+     * Words grouped by first letter.
+     *
+     * This makes normal dictionary completion
+     * faster.
      */
     private val byFirstLetter: Map<Char, List<String>> =
         words.groupBy {
@@ -37,42 +43,9 @@ class EnglishLexicon(
         }
 
     /**
-     * Load the bundled English dictionary.
-     */
-    private fun loadWords(
-        context: Context,
-        assetPath: String
-    ): Set<String> {
-
-        return try {
-
-            context.assets
-                .open(assetPath)
-                .use { stream ->
-
-                    BufferedReader(
-                        InputStreamReader(stream)
-                    ).useLines { lines ->
-
-                        lines
-                            .map {
-                                it.trim().lowercase()
-                            }
-                            .filter {
-                                it.isNotEmpty()
-                            }
-                            .toSet()
-                    }
-                }
-
-        } catch (e: Exception) {
-
-            emptySet()
-        }
-    }
-
-    /**
-     * Checks whether CipherKeys recognizes a word.
+     * Returns true if the word exists either in
+     * the bundled dictionary OR the user's personal
+     * vocabulary.
      */
     override fun isValidWord(
         word: String
@@ -85,90 +58,16 @@ class EnglishLexicon(
         val normalized =
             word.lowercase()
 
-        /*
-         * Normal dictionary.
-         */
-        if (words.contains(normalized)) {
-            return true
-        }
-
-        /*
-         * User vocabulary.
-         */
-        if (userVocabulary.contains(normalized)) {
-            return true
-        }
-
-        /*
-         * Natural contractions.
-         *
-         * Example:
-         *
-         * don't
-         * can't
-         * wouldn't
-         */
-        if (
-            SmartContractions.hasContraction(
-                normalized
-            )
-        ) {
-            return true
-        }
-
-        /*
-         * Also recognize the unpunctuated version.
-         *
-         * Example:
-         *
-         * dont
-         * cant
-         * wouldnt
-         */
-        if (
-            SmartContractions.convert(
-                normalized
-            ) != null
-        ) {
-            return true
-        }
-
-        return false
+        return words.contains(normalized) ||
+                userVocabulary.contains(normalized)
     }
 
     /**
-     * Teach CipherKeys a new word.
-     */
-    override fun learnWord(
-        word: String
-    ) {
-
-        userVocabulary.learnWord(
-            word
-        )
-    }
-
-    /**
-     * Check whether the user specifically
-     * learned this word.
-     */
-    override fun isUserLearnedWord(
-        word: String
-    ): Boolean {
-
-        return userVocabulary.contains(
-            word
-        )
-    }
-
-    /**
-     * Suggest words while the user types.
+     * Returns completion suggestions from both
+     * the normal dictionary and learned vocabulary.
      *
-     * Combines:
-     *
-     * 1. Personal vocabulary
-     * 2. Smart contractions
-     * 3. Normal English dictionary
+     * Learned words receive priority because they
+     * represent the user's personal language.
      */
     override fun suggestCompletions(
         prefix: String,
@@ -179,87 +78,44 @@ class EnglishLexicon(
             return emptyList()
         }
 
-        val lower =
+        val normalizedPrefix =
             prefix.lowercase()
 
-        /*
-         * Personal words.
-         */
-        val learned =
+        val learnedSuggestions =
             userVocabulary.suggest(
-                lower,
+                normalizedPrefix,
                 limit
             )
 
-        /*
-         * Normal dictionary.
-         */
         val dictionarySuggestions =
-            if (lower.isNotEmpty()) {
+            if (normalizedPrefix.isNotEmpty()) {
 
                 val candidates =
                     byFirstLetter[
-                        lower.first()
-                    ] ?: emptyList()
+                        normalizedPrefix.first()
+                    ]
 
                 candidates
-                    .asSequence()
-                    .filter {
-                        it.startsWith(lower) &&
-                                it != lower
+                    ?.asSequence()
+                    ?.filter {
+                        it.startsWith(
+                            normalizedPrefix
+                        ) &&
+                        it != normalizedPrefix
                     }
-                    .sortedWith(
-                        compareBy<String> {
-                            it.length
-                        }.thenBy {
-                            it
-                        }
-                    )
-                    .take(limit)
-                    .toList()
+                    ?.sortedBy {
+                        it.length
+                    }
+                    ?.take(limit)
+                    ?.toList()
+                    ?: emptyList()
 
             } else {
-
                 emptyList()
             }
 
-        /*
-         * Smart contraction suggestions.
-         *
-         * Example:
-         *
-         * "dont" -> "don't"
-         * "cant" -> "can't"
-         * "woul" -> "wouldn't"
-         */
-        val contractionSuggestions =
-            SmartContractions
-                .all()
-                .asSequence()
-                .filter { contraction ->
-
-                    contraction.startsWith(
-                        lower
-                    ) ||
-                            contraction
-                                .replace(
-                                    "'",
-                                    ""
-                                )
-                                .startsWith(
-                                    lower
-                                )
-                }
-                .distinct()
-                .take(limit)
-                .toList()
-
-        /*
-         * Combine all sources.
-         */
         return (
-            learned +
-                    contractionSuggestions +
+            learnedSuggestions +
                     dictionarySuggestions
             )
             .distinct()
@@ -267,7 +123,8 @@ class EnglishLexicon(
     }
 
     /**
-     * Find likely spelling corrections.
+     * Returns spelling corrections from the
+     * bundled dictionary and learned vocabulary.
      */
     override fun suggestCorrections(
         word: String,
@@ -281,53 +138,31 @@ class EnglishLexicon(
             return emptyList()
         }
 
-        val lower =
+        val normalized =
             word.lowercase()
 
         /*
-         * If the word is actually an unpunctuated
-         * contraction, prefer the contraction.
-         *
-         * Example:
-         *
-         * dont -> don't
-         * cant -> can't
+         * Combine normal and learned words.
          */
-        val contraction =
-            SmartContractions
-                .convertPreservingCase(
-                    word
-                )
-
-        if (contraction != null) {
-
-            return listOf(
-                contraction
-            )
-        }
-
-        /*
-         * Search normal + learned vocabulary.
-         */
-        val candidates =
+        val allCandidates =
             (
                 words +
-                        userVocabulary.allWords() +
-                        SmartContractions.all()
+                        userVocabulary
+                            .allWords()
+                            .toSet()
                 )
-                .asSequence()
                 .filter {
                     abs(
                         it.length -
-                                lower.length
+                                normalized.length
                     ) <= 2
                 }
-                .distinct()
 
-        return candidates
+        return allCandidates
+            .asSequence()
             .map {
                 it to levenshteinDistance(
-                    lower,
+                    normalized,
                     it
                 )
             }
@@ -335,18 +170,123 @@ class EnglishLexicon(
                 (_, distance) ->
                 distance <= 2
             }
-            .sortedWith(
-                compareBy<Pair<String, Int>> {
-                    it.second
-                }.thenBy {
-                    it.first.length
-                }
-            )
+            .sortedBy {
+                it.second
+            }
             .take(limit)
             .map {
                 it.first
             }
             .toList()
+    }
+
+    /**
+     * Teach CipherKeys a new word.
+     *
+     * The actual persistence is handled by
+     * UserVocabulary.
+     */
+    override fun learnWord(
+        word: String
+    ) {
+
+        userVocabulary.learnWord(
+            word
+        )
+    }
+
+    /**
+     * Returns true when a word exists specifically
+     * inside the user's personal vocabulary.
+     */
+    override fun isLearnedWord(
+        word: String
+    ): Boolean {
+
+        return userVocabulary.contains(
+            word
+        )
+    }
+
+    /**
+     * Returns the number of times a learned word
+     * has been used.
+     */
+    override fun usageCount(
+        word: String
+    ): Int {
+
+        return userVocabulary.usageCount(
+            word
+        )
+    }
+
+    /**
+     * Returns all personal vocabulary words.
+     */
+    override fun learnedWords(): List<String> {
+
+        return userVocabulary.allWords()
+    }
+
+    /**
+     * Remove one learned word.
+     */
+    override fun removeLearnedWord(
+        word: String
+    ) {
+
+        userVocabulary.removeWord(
+            word
+        )
+    }
+
+    /**
+     * Remove all learned vocabulary.
+     */
+    override fun clearLearnedWords() {
+
+        userVocabulary.clear()
+    }
+
+    /**
+     * Loads the bundled English dictionary.
+     */
+    private fun loadWords(
+        context: Context,
+        assetPath: String
+    ): Set<String> {
+
+        return try {
+
+            context.assets
+                .open(assetPath)
+                .use { stream ->
+
+                    BufferedReader(
+                        InputStreamReader(
+                            stream
+                        )
+                    ).useLines { lines ->
+
+                        lines
+                            .map {
+                                it.trim()
+                                    .lowercase()
+                            }
+                            .filter {
+                                it.isNotEmpty()
+                            }
+                            .toSet()
+                    }
+                }
+
+        } catch (
+            e: Exception
+        ) {
+
+            emptySet()
+        }
     }
 
     /**
@@ -366,17 +306,25 @@ class EnglishLexicon(
                 )
             }
 
-        for (i in 0..a.length) {
+        for (
+            i in 0..a.length
+        ) {
             dp[i][0] = i
         }
 
-        for (j in 0..b.length) {
+        for (
+            j in 0..b.length
+        ) {
             dp[0][j] = j
         }
 
-        for (i in 1..a.length) {
+        for (
+            i in 1..a.length
+        ) {
 
-            for (j in 1..b.length) {
+            for (
+                j in 1..b.length
+            ) {
 
                 val cost =
                     if (
@@ -392,7 +340,8 @@ class EnglishLexicon(
                     minOf(
                         dp[i - 1][j] + 1,
                         dp[i][j - 1] + 1,
-                        dp[i - 1][j - 1] + cost
+                        dp[i - 1][j - 1] +
+                                cost
                     )
             }
         }
