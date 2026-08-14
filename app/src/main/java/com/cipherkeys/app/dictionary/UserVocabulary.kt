@@ -5,19 +5,23 @@ import android.content.Context
 /**
  * Personal vocabulary for CipherKeys.
  *
- * Learns words that are not present in the bundled English dictionary.
+ * Learns words that are not present in the bundled dictionary.
  *
  * Examples:
  *
- * User repeatedly types:
- *   "CipherKeys"
- *   "KachiArts"
- *   "Bigi"
- *   "crypto"
- *
- * CipherKeys can learn them and later suggest them automatically.
+ * CipherKeys
+ * KachiArts
+ * Bigi
+ * crypto
+ * don't
+ * can't
+ * wouldn't
+ * we're
  *
  * Everything is stored locally on the device.
+ *
+ * The more frequently a word is used, the higher
+ * it is ranked in the suggestion system.
  */
 class UserVocabulary(context: Context) {
 
@@ -28,7 +32,7 @@ class UserVocabulary(context: Context) {
         )
 
     /**
-     * Word -> number of times the user has typed it.
+     * Word -> usage count.
      */
     private val words =
         mutableMapOf<String, Int>()
@@ -40,7 +44,8 @@ class UserVocabulary(context: Context) {
     /**
      * Teach CipherKeys a word.
      *
-     * The word is normalized before storage.
+     * Every time the user completes a word,
+     * its usage count increases.
      */
     fun learnWord(word: String) {
 
@@ -58,7 +63,7 @@ class UserVocabulary(context: Context) {
     }
 
     /**
-     * Returns true if CipherKeys has learned this word.
+     * Returns true if this word has been learned.
      */
     fun contains(word: String): Boolean {
 
@@ -68,8 +73,8 @@ class UserVocabulary(context: Context) {
     }
 
     /**
-     * Returns how many times the user has typed
-     * this particular word.
+     * Returns how many times the user has used
+     * a particular word.
      */
     fun usageCount(word: String): Int {
 
@@ -79,9 +84,16 @@ class UserVocabulary(context: Context) {
     }
 
     /**
-     * Find learned words that begin with [prefix].
+     * Returns learned words beginning with [prefix].
      *
-     * More frequently used words are ranked first.
+     * Ranking:
+     *
+     * 1. Most frequently used
+     * 2. Shorter word
+     * 3. Alphabetical order
+     *
+     * This makes frequently used personal words
+     * appear naturally in the suggestion strip.
      */
     fun suggest(
         prefix: String,
@@ -98,18 +110,23 @@ class UserVocabulary(context: Context) {
         return words
             .entries
             .asSequence()
-            .filter {
-                it.key.startsWith(
+            .filter { entry ->
+
+                entry.key.startsWith(
                     normalizedPrefix
                 ) &&
-                it.key != normalizedPrefix
+                        entry.key != normalizedPrefix
             }
             .sortedWith(
                 compareByDescending<Map.Entry<String, Int>> {
                     it.value
-                }.thenBy {
-                    it.key.length
                 }
+                    .thenBy {
+                        it.key.length
+                    }
+                    .thenBy {
+                        it.key
+                    }
             )
             .take(limit)
             .map {
@@ -121,8 +138,12 @@ class UserVocabulary(context: Context) {
     /**
      * Returns all learned words.
      *
-     * Useful later for a settings screen where
-     * the user can view their personal dictionary.
+     * Used later for:
+     *
+     * - Personal dictionary settings
+     * - Export/import
+     * - Dictionary management
+     * - Debugging
      */
     fun allWords(): List<String> {
 
@@ -131,9 +152,10 @@ class UserVocabulary(context: Context) {
             .sortedWith(
                 compareByDescending<Map.Entry<String, Int>> {
                     it.value
-                }.thenBy {
-                    it.key
                 }
+                    .thenBy {
+                        it.key
+                    }
             )
             .map {
                 it.key
@@ -141,7 +163,7 @@ class UserVocabulary(context: Context) {
     }
 
     /**
-     * Remove one learned word.
+     * Remove a single learned word.
      */
     fun removeWord(word: String) {
 
@@ -153,7 +175,7 @@ class UserVocabulary(context: Context) {
     }
 
     /**
-     * Completely reset the personal dictionary.
+     * Completely reset learned vocabulary.
      */
     fun clear() {
 
@@ -165,7 +187,7 @@ class UserVocabulary(context: Context) {
     }
 
     /**
-     * Save the vocabulary locally.
+     * Save learned vocabulary locally.
      *
      * Format:
      *
@@ -215,10 +237,11 @@ class UserVocabulary(context: Context) {
             }
 
             val word =
-                parts[0]
+                parts[0].trim()
 
             val count =
-                parts[1].toIntOrNull()
+                parts[1]
+                    .toIntOrNull()
                     ?: return@forEach
 
             if (
@@ -228,12 +251,24 @@ class UserVocabulary(context: Context) {
                 return@forEach
             }
 
-            words[word] = count
+            if (
+                isUsableWord(
+                    word.lowercase()
+                )
+            ) {
+
+                words[
+                    word.lowercase()
+                ] = count
+            }
         }
     }
 
     /**
-     * Normalize words consistently.
+     * Normalize a word consistently.
+     *
+     * CipherKeys currently stores vocabulary
+     * case-insensitively.
      */
     private fun normalize(
         word: String
@@ -245,18 +280,23 @@ class UserVocabulary(context: Context) {
     }
 
     /**
-     * Prevent random punctuation, spaces,
-     * and extremely long strings from entering
-     * the personal dictionary.
+     * Determines whether something is suitable
+     * for the personal dictionary.
      *
-     * Apostrophes are allowed so contractions such as:
+     * Apostrophes are deliberately supported.
+     *
+     * Examples:
      *
      * don't
      * can't
+     * won't
      * wouldn't
+     * I'm
+     * I've
+     * I'll
+     * you're
      * we're
-     *
-     * remain intact.
+     * they're
      */
     private fun isUsableWord(
         word: String
@@ -270,8 +310,23 @@ class UserVocabulary(context: Context) {
             return false
         }
 
+        /*
+         * Allow:
+         *
+         * letters
+         * one or more apostrophe-separated parts
+         *
+         * Examples:
+         *
+         * hello
+         * don't
+         * wouldn't
+         * we're
+         */
         return word.matches(
-            Regex("[a-zA-Z]+(?:'[a-zA-Z]+)*")
+            Regex(
+                "[a-z]+(?:'[a-z]+)*"
+            )
         )
     }
 }
