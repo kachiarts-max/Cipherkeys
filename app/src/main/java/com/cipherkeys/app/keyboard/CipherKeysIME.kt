@@ -20,12 +20,12 @@ import com.cipherkeys.app.dictionary.ContextPredictor
 import com.cipherkeys.app.dictionary.Dictionary
 import com.cipherkeys.app.dictionary.EnglishLexicon
 import com.cipherkeys.app.dictionary.SmartSuggestionEngine
+import com.cipherkeys.app.emoji.RecentEmojiStore
 import com.cipherkeys.app.encoder.ClassicLeetEncoder
-import com.cipherkeys.app.encoder.EliteEncoder
 import com.cipherkeys.app.encoder.Encoder
+import com.cipherkeys.app.encoder.EliteEncoder
 import com.cipherkeys.app.encoder.HackerEncoder
 import com.cipherkeys.app.encoder.UltraEncoder
-import com.cipherkeys.app.emoji.RecentEmojiStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,28 +33,44 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Real Android keyboard service for CipherKeys.
+ * Main Android Input Method Service for CipherKeys.
  *
  * Responsibilities:
  *
- * - Own the InputConnection lifecycle
- * - Send key presses to the active encoder
+ * - Manage the InputConnection lifecycle
+ * - Handle keyboard actions
+ * - Encode typed characters
+ * - Decode existing text
  * - Track the current word
- * - Provide dictionary suggestions
- * - Learn personal vocabulary
+ * - Learn user vocabulary
  * - Learn word-to-word context
- * - Provide smart context-aware suggestions
- * - Handle emoji
- * - Handle themes/backgrounds/settings
- * - Handle autocorrect
- * - Handle decoding
+ * - Generate smart suggestions
+ * - Perform autocorrection
+ * - Manage emoji recents
+ * - Manage keyboard themes/backgrounds
+ * - Provide key sound and vibration feedback
+ *
+ * All learning remains local to the device.
  */
 class CipherKeysIME :
     InputMethodService(),
     KeyboardActionListener {
 
+    // =========================================================
+    // CORE COMPONENTS
+    // =========================================================
+
     private lateinit var keyboardView: CipherKeysKeyboardView
     private lateinit var settingsRepository: SettingsRepository
+
+    private lateinit var dictionary: Dictionary
+    private lateinit var contextPredictor: ContextPredictor
+    private lateinit var smartSuggestionEngine: SmartSuggestionEngine
+    private lateinit var recentEmojiStore: RecentEmojiStore
+
+    // =========================================================
+    // COROUTINES
+    // =========================================================
 
     private val serviceJob = Job()
 
@@ -63,13 +79,17 @@ class CipherKeysIME :
             serviceJob + Dispatchers.Main
         )
 
+    // =========================================================
+    // SETTINGS / MODE
+    // =========================================================
+
     private var currentSettings: KeyboardSettings =
         KeyboardSettings()
 
     private var currentMode: KeyboardMode =
         KeyboardMode.default()
 
-    private var shiftEnabled = false
+    private var shiftEnabled: Boolean = false
 
     // =========================================================
     // ENCODERS / DECODER
@@ -82,22 +102,6 @@ class CipherKeysIME :
     private lateinit var decoder: CipherKeysDecoder
 
     // =========================================================
-    // DICTIONARY / LEARNING
-    // =========================================================
-
-    private lateinit var dictionary: Dictionary
-
-    private lateinit var contextPredictor: ContextPredictor
-
-    private lateinit var smartSuggestionEngine: SmartSuggestionEngine
-
-    // =========================================================
-    // EMOJI
-    // =========================================================
-
-    private lateinit var recentEmojiStore: RecentEmojiStore
-
-    // =========================================================
     // BACKGROUND
     // =========================================================
 
@@ -108,11 +112,12 @@ class CipherKeysIME :
     // =========================================================
 
     /**
-     * Current raw English word being typed.
+     * Raw English word currently being typed.
      *
      * Example:
      *
      * User types:
+     *
      * "hello"
      *
      * rawWordBuffer = "hello"
@@ -121,18 +126,11 @@ class CipherKeysIME :
         StringBuilder()
 
     /**
-     * Number of encoded characters produced
+     * Stores the number of encoded characters generated
      * for every raw character.
      *
-     * Example:
-     *
-     * raw character: "a"
-     * encoded output: "4"
-     *
-     * length = 1
-     *
-     * If a character produces multiple encoded
-     * characters, that length is stored here.
+     * This is important because one raw character can become
+     * multiple encoded characters.
      */
     private val encodedLengthsPerChar =
         mutableListOf<Int>()
@@ -150,7 +148,7 @@ class CipherKeysIME :
      * after "you":
      * lastCompletedWord = "you"
      */
-    private var lastCompletedWord = ""
+    private var lastCompletedWord: String = ""
 
     // =========================================================
     // LIFECYCLE
@@ -176,8 +174,8 @@ class CipherKeysIME :
 
         smartSuggestionEngine =
             SmartSuggestionEngine(
-                dictionary = dictionary,
-                contextPredictor = contextPredictor
+                dictionary,
+                contextPredictor
             )
 
         recentEmojiStore =
@@ -189,9 +187,16 @@ class CipherKeysIME :
             emptyMap()
         )
 
-        /*
-         * Listen for settings changes.
-         */
+        observeSettings()
+
+        observeRecentEmoji()
+    }
+
+    /**
+     * Observe keyboard settings.
+     */
+    private fun observeSettings() {
+
         serviceScope.launch {
 
             settingsRepository.settingsFlow.collect { settings ->
@@ -204,7 +209,8 @@ class CipherKeysIME :
                     settings.backgroundImagePath !=
                             currentSettings.backgroundImagePath
 
-                currentSettings = settings
+                currentSettings =
+                    settings
 
                 if (mappingsChanged) {
 
@@ -217,41 +223,24 @@ class CipherKeysIME :
 
                     backgroundBitmap =
                         settings.backgroundImagePath
-                            ?.let { path ->
-                                decodeBackgroundBitmap(
-                                    path
-                                )
+                            ?.let {
+                                decodeBackgroundBitmap(it)
                             }
                 }
 
                 if (::keyboardView.isInitialized) {
 
-                    keyboardView.applyThemeAndHeight(
-                        settings.theme,
-                        settings.keyboardHeightScale,
-                        settings.customColors
-                    )
-
-                    val bitmapToShow =
-                        if (
-                            settings.useImageBackground
-                        ) {
-                            backgroundBitmap
-                        } else {
-                            null
-                        }
-
-                    keyboardView.setBackgroundImage(
-                        bitmapToShow,
-                        settings.backgroundOverlayAlpha
-                    )
+                    applyCurrentSettingsToKeyboard()
                 }
             }
         }
+    }
 
-        /*
-         * Listen for recent emoji updates.
-         */
+    /**
+     * Observe recently used emoji.
+     */
+    private fun observeRecentEmoji() {
+
         serviceScope.launch {
 
             recentEmojiStore.recentsFlow.collect { recents ->
@@ -266,9 +255,10 @@ class CipherKeysIME :
         }
     }
 
-    /**
-     * Rebuild all encoders whenever custom mappings change.
-     */
+    // =========================================================
+    // ENCODERS
+    // =========================================================
+
     private fun rebuildEncoders(
         customMappings: Map<Char, List<String>>
     ) {
@@ -299,9 +289,10 @@ class CipherKeysIME :
             )
     }
 
-    /**
-     * Decode a background image off the main thread.
-     */
+    // =========================================================
+    // BACKGROUND
+    // =========================================================
+
     private suspend fun decodeBackgroundBitmap(
         path: String
     ): Bitmap? =
@@ -320,7 +311,7 @@ class CipherKeysIME :
                 )
 
             } catch (
-                e: Exception
+                _: Exception
             ) {
 
                 null
@@ -340,25 +331,52 @@ class CipherKeysIME :
 
         keyboardView = view
 
+        applyCurrentSettingsToKeyboard()
+
+        return view
+    }
+
+    /**
+     * Apply the current theme, size and background.
+     */
+    private fun applyCurrentSettingsToKeyboard() {
+
+        if (!::keyboardView.isInitialized) {
+            return
+        }
+
         keyboardView.applyThemeAndHeight(
             currentSettings.theme,
             currentSettings.keyboardHeightScale,
             currentSettings.customColors
         )
 
-        keyboardView.setBackgroundImage(
+        val bitmapToShow =
             if (
                 currentSettings.useImageBackground
             ) {
                 backgroundBitmap
             } else {
                 null
-            },
+            }
+
+        keyboardView.setBackgroundImage(
+            bitmapToShow,
             currentSettings.backgroundOverlayAlpha
         )
 
-        return view
+        keyboardView.setMode(
+            currentMode
+        )
+
+        keyboardView.setShiftState(
+            shiftEnabled
+        )
     }
+
+    // =========================================================
+    // INPUT VIEW START
+    // =========================================================
 
     override fun onStartInputView(
         info: EditorInfo?,
@@ -388,8 +406,7 @@ class CipherKeysIME :
         )
 
         /*
-         * Recover the word immediately before
-         * the cursor.
+         * Recover the word before the cursor.
          */
         recoverPreviousWord()
 
@@ -403,6 +420,9 @@ class CipherKeysIME :
             decodeExistingFieldText()
         }
 
+        /*
+         * Show context suggestions if possible.
+         */
         updateContextSuggestions()
     }
 
@@ -437,7 +457,9 @@ class CipherKeysIME :
 
         performFeedback()
 
-        if (effectiveChar.isLetter()) {
+        if (
+            effectiveChar.isLetter()
+        ) {
 
             rawWordBuffer.append(
                 effectiveChar
@@ -452,18 +474,16 @@ class CipherKeysIME :
         } else {
 
             /*
-             * Punctuation ends the current word.
+             * Any non-letter ends the current word.
              */
             completeCurrentWord()
 
-            /*
-             * Keep context predictions available.
-             */
             updateContextSuggestions()
         }
 
         /*
-         * Shift behaves like a normal one-shot shift.
+         * Normal keyboard shift behavior:
+         * shift automatically turns off after one character.
          */
         if (shiftEnabled) {
 
@@ -477,13 +497,15 @@ class CipherKeysIME :
 
     /**
      * Encode one character according to the
-     * current keyboard mode.
+     * currently selected keyboard mode.
      */
     private fun encodeCharacter(
         char: Char
     ): String {
 
-        if (!currentSettings.autoEncodeEnabled) {
+        if (
+            !currentSettings.autoEncodeEnabled
+        ) {
             return char.toString()
         }
 
@@ -491,28 +513,33 @@ class CipherKeysIME :
 
             KeyboardMode.NORMAL,
             KeyboardMode.DECODE -> {
+
                 char.toString()
             }
 
             KeyboardMode.CLASSIC_LEET -> {
+
                 classicEncoder.encode(
                     char.toString()
                 )
             }
 
             KeyboardMode.ELITE -> {
+
                 eliteEncoder.encode(
                     char.toString()
                 )
             }
 
             KeyboardMode.HACKER -> {
+
                 hackerEncoder.encode(
                     char.toString()
                 )
             }
 
             KeyboardMode.ULTRA -> {
+
                 ultraEncoder.encode(
                     char.toString()
                 )
@@ -532,10 +559,13 @@ class CipherKeysIME :
         maybeAutocorrectBeforeBoundary()
 
         /*
-         * Finish and learn the current word.
+         * Finish the current word.
          */
         completeCurrentWord()
 
+        /*
+         * Commit the actual space.
+         */
         currentInputConnection?.commitText(
             " ",
             1
@@ -544,7 +574,7 @@ class CipherKeysIME :
         performFeedback()
 
         /*
-         * Predict the next word.
+         * Show predictions for the next word.
          */
         updateContextSuggestions()
     }
@@ -563,24 +593,21 @@ class CipherKeysIME :
             ic.getSelectedText(0)
 
         /*
-         * If text is selected, delete it.
+         * Delete selected text.
          */
-        if (!selected.isNullOrEmpty()) {
+        if (
+            !selected.isNullOrEmpty()
+        ) {
 
             ic.commitText(
                 "",
                 1
             )
 
-            /*
-             * The local word buffer can no longer
-             * be trusted after deleting a selection.
-             */
             rawWordBuffer.clear()
             encodedLengthsPerChar.clear()
 
             recoverPreviousWord()
-
             updateContextSuggestions()
 
             performFeedback()
@@ -589,7 +616,7 @@ class CipherKeysIME :
         }
 
         /*
-         * Delete from the currently tracked word.
+         * Delete a character from the current word.
          */
         if (
             rawWordBuffer.isNotEmpty() &&
@@ -597,10 +624,9 @@ class CipherKeysIME :
         ) {
 
             val lastEncodedLength =
-                encodedLengthsPerChar
-                    .removeAt(
-                        encodedLengthsPerChar.lastIndex
-                    )
+                encodedLengthsPerChar.removeAt(
+                    encodedLengthsPerChar.lastIndex
+                )
 
             rawWordBuffer.deleteCharAt(
                 rawWordBuffer.lastIndex
@@ -613,25 +639,24 @@ class CipherKeysIME :
 
             updateSuggestions()
 
-        } else {
+            performFeedback()
 
-            /*
-             * No tracked word.
-             *
-             * Delete one character from the editor.
-             */
-            ic.deleteSurroundingText(
-                1,
-                0
-            )
-
-            /*
-             * Recover context after deleting.
-             */
-            recoverPreviousWord()
-
-            updateContextSuggestions()
+            return
         }
+
+        /*
+         * There is no active word.
+         *
+         * Delete the previous character from the editor.
+         */
+        ic.deleteSurroundingText(
+            1,
+            0
+        )
+
+        recoverPreviousWord()
+
+        updateContextSuggestions()
 
         performFeedback()
     }
@@ -654,9 +679,7 @@ class CipherKeysIME :
         val action =
             editorInfo
                 ?.imeOptions
-                ?.and(
-                    EditorInfo.IME_MASK_ACTION
-                )
+                ?.and(EditorInfo.IME_MASK_ACTION)
 
         if (
             action != null &&
@@ -684,10 +707,6 @@ class CipherKeysIME :
         finalizeWord()
 
         lastCompletedWord = ""
-
-        keyboardView.setSuggestions(
-            emptyList()
-        )
     }
 
     // =========================================================
@@ -699,9 +718,12 @@ class CipherKeysIME :
         shiftEnabled =
             !shiftEnabled
 
-        keyboardView.setShiftState(
-            shiftEnabled
-        )
+        if (::keyboardView.isInitialized) {
+
+            keyboardView.setShiftState(
+                shiftEnabled
+            )
+        }
     }
 
     // =========================================================
@@ -713,16 +735,22 @@ class CipherKeysIME :
     ) {
 
         /*
-         * Finish the current word before switching mode.
+         * Finish anything currently being typed
+         * before switching mode.
          */
         completeCurrentWord()
 
-        currentMode = mode
+        currentMode =
+            mode
 
         keyboardView.setMode(
-            currentMode
+            mode
         )
 
+        /*
+         * Decode the existing field when the
+         * decode mode is selected.
+         */
         if (
             mode == KeyboardMode.DECODE
         ) {
@@ -734,7 +762,7 @@ class CipherKeysIME :
     }
 
     // =========================================================
-    // SUGGESTION SELECTION
+    // SUGGESTION SELECTED
     // =========================================================
 
     override fun onSuggestionSelected(
@@ -746,28 +774,25 @@ class CipherKeysIME :
                 ?: return
 
         val normalizedWord =
-            word
-                .trim()
-                .lowercase()
+            word.trim()
 
-        if (normalizedWord.isBlank()) {
+        if (
+            normalizedWord.isBlank()
+        ) {
             return
         }
 
         /*
          * Selecting a suggestion is strong evidence
-         * that this is a useful word for the user.
+         * that this is useful vocabulary.
          */
         dictionary.learnWord(
             normalizedWord
         )
 
         /*
-         * Teach the previous -> selected relationship.
-         *
-         * Example:
-         *
-         * thank -> you
+         * Teach the relationship between the previous
+         * word and the selected word.
          */
         if (
             lastCompletedWord.isNotBlank()
@@ -780,7 +805,7 @@ class CipherKeysIME :
         }
 
         /*
-         * Replace the currently typed word.
+         * Replace the currently typed prefix.
          */
         replaceCurrentWord(
             ic,
@@ -791,21 +816,26 @@ class CipherKeysIME :
          * The selected word becomes the new context.
          */
         lastCompletedWord =
-            normalizedWord
+            normalizedWord.lowercase()
 
         /*
-         * Add a space after the selected suggestion,
-         * matching normal keyboard behavior.
+         * Insert a space so the user can immediately
+         * continue typing.
          */
         ic.commitText(
             " ",
             1
         )
 
-        finalizeWord()
+        /*
+         * Clear current typing state.
+         */
+        rawWordBuffer.clear()
+
+        encodedLengthsPerChar.clear()
 
         /*
-         * Predict what comes next.
+         * Show the next context predictions.
          */
         updateContextSuggestions()
 
@@ -825,7 +855,7 @@ class CipherKeysIME :
                 ?: return
 
         /*
-         * Finish the current word before inserting emoji.
+         * Finish the current word first.
          */
         completeCurrentWord()
 
@@ -836,6 +866,9 @@ class CipherKeysIME :
 
         performFeedback()
 
+        /*
+         * Store the emoji as recently used.
+         */
         serviceScope.launch {
 
             recentEmojiStore.addRecent(
@@ -843,6 +876,9 @@ class CipherKeysIME :
             )
         }
 
+        /*
+         * Emoji does not become a word context.
+         */
         updateContextSuggestions()
     }
 
@@ -851,15 +887,14 @@ class CipherKeysIME :
     // =========================================================
 
     /**
-     * Updates suggestions while the user is
-     * actively typing a word.
+     * Update suggestions while the user is typing.
      *
      * SmartSuggestionEngine combines:
      *
-     * - Dictionary completions
-     * - Learned vocabulary
-     * - Context predictions
-     * - Personal usage frequency
+     * - dictionary completions
+     * - learned vocabulary
+     * - context predictions
+     * - usage frequency
      */
     private fun updateSuggestions() {
 
@@ -873,7 +908,9 @@ class CipherKeysIME :
             rawWordBuffer
                 .toString()
 
-        if (prefix.isBlank()) {
+        if (
+            prefix.isBlank()
+        ) {
 
             updateContextSuggestions()
 
@@ -893,16 +930,15 @@ class CipherKeysIME :
     }
 
     /**
-     * Shows context predictions when there is
-     * no active word being typed.
+     * Show predictions for the next word.
      *
      * Example:
      *
      * "thank "
      *
-     * could produce:
+     * ->
      *
-     * you | god | goodness
+     * you | you... | ...
      */
     private fun updateContextSuggestions() {
 
@@ -939,12 +975,7 @@ class CipherKeysIME :
     // =========================================================
 
     /**
-     * Completes the current word.
-     *
-     * This teaches:
-     *
-     * 1. Personal vocabulary
-     * 2. Previous-word -> current-word relationship
+     * Complete and learn the current word.
      */
     private fun completeCurrentWord() {
 
@@ -953,7 +984,9 @@ class CipherKeysIME :
                 .toString()
                 .trim()
 
-        if (word.isNotBlank()) {
+        if (
+            word.isNotBlank()
+        ) {
 
             /*
              * Learn the word itself.
@@ -963,8 +996,8 @@ class CipherKeysIME :
             )
 
             /*
-             * Learn the relationship between
-             * the previous and current word.
+             * Learn its relationship with the
+             * previous completed word.
              */
             if (
                 lastCompletedWord.isNotBlank()
@@ -977,8 +1010,7 @@ class CipherKeysIME :
             }
 
             /*
-             * Current word becomes context
-             * for the next word.
+             * This word becomes the new context.
              */
             lastCompletedWord =
                 word.lowercase()
@@ -988,7 +1020,7 @@ class CipherKeysIME :
     }
 
     /**
-     * Clear current word tracking.
+     * Clear active word-tracking state.
      */
     private fun finalizeWord() {
 
@@ -1002,8 +1034,8 @@ class CipherKeysIME :
     // =========================================================
 
     /**
-     * Correct the current word before a space
-     * is committed.
+     * Attempts to correct the current word before
+     * a space is inserted.
      */
     private fun maybeAutocorrectBeforeBoundary() {
 
@@ -1014,8 +1046,8 @@ class CipherKeysIME :
         }
 
         /*
-         * Autocorrect only applies to normal
-         * text modes.
+         * Autocorrection only makes sense when we
+         * are currently writing normal English.
          */
         if (
             currentMode != KeyboardMode.NORMAL &&
@@ -1030,8 +1062,18 @@ class CipherKeysIME :
                 .trim()
 
         if (
-            word.length < 3 ||
-            dictionary.isValidWord(word)
+            word.length < 3
+        ) {
+            return
+        }
+
+        /*
+         * Already valid -> no correction.
+         */
+        if (
+            dictionary.isValidWord(
+                word
+            )
         ) {
             return
         }
@@ -1062,9 +1104,15 @@ class CipherKeysIME :
             correction.lowercase()
     }
 
+    // =========================================================
+    // REPLACE CURRENT WORD
+    // =========================================================
+
     /**
-     * Replace the currently tracked word in
-     * the editor.
+     * Replace the currently typed raw word.
+     *
+     * This correctly handles encoded modes where
+     * one raw character may produce multiple characters.
      */
     private fun replaceCurrentWord(
         ic: InputConnection,
@@ -1101,7 +1149,7 @@ class CipherKeysIME :
 
     /**
      * Encode a complete word according to
-     * the active mode.
+     * the currently selected mode.
      */
     private fun encodeWholeWord(
         word: String
@@ -1117,28 +1165,33 @@ class CipherKeysIME :
 
             KeyboardMode.NORMAL,
             KeyboardMode.DECODE -> {
+
                 word
             }
 
             KeyboardMode.CLASSIC_LEET -> {
+
                 classicEncoder.encode(
                     word
                 )
             }
 
             KeyboardMode.ELITE -> {
+
                 eliteEncoder.encode(
                     word
                 )
             }
 
             KeyboardMode.HACKER -> {
+
                 hackerEncoder.encode(
                     word
                 )
             }
 
             KeyboardMode.ULTRA -> {
+
                 ultraEncoder.encode(
                     word
                 )
@@ -1151,8 +1204,7 @@ class CipherKeysIME :
     // =========================================================
 
     /**
-     * Attempts to find the word immediately
-     * before the cursor.
+     * Recover the word immediately before the cursor.
      */
     private fun recoverPreviousWord() {
 
@@ -1168,13 +1220,24 @@ class CipherKeysIME :
                 ?: return
 
         /*
-         * If the cursor is currently inside a word,
-         * this extracts that word.
+         * If there is an active unfinished word,
+         * don't overwrite it.
+         */
+        if (
+            rawWordBuffer.isNotEmpty()
+        ) {
+            return
+        }
+
+        /*
+         * Find the last English-like word.
          */
         val match =
             Regex(
                 "[A-Za-z']+$"
-            ).find(before)
+            ).find(
+                before
+            )
 
         lastCompletedWord =
             match
@@ -1188,8 +1251,7 @@ class CipherKeysIME :
     // =========================================================
 
     /**
-     * Decode the text currently surrounding
-     * the cursor.
+     * Decode existing encoded text around the cursor.
      */
     private fun decodeExistingFieldText() {
 
@@ -1230,29 +1292,40 @@ class CipherKeysIME :
 
         ic.beginBatchEdit()
 
-        ic.deleteSurroundingText(
-            before.length,
-            after.length
-        )
+        try {
 
-        ic.commitText(
-            decodedBefore + decodedAfter,
-            1
-        )
+            ic.deleteSurroundingText(
+                before.length,
+                after.length
+            )
+
+            ic.commitText(
+                decodedBefore + decodedAfter,
+                1
+            )
+
+            val newCursorPosition =
+                decodedBefore.length
+
+            ic.setSelection(
+                newCursorPosition,
+                newCursorPosition
+            )
+
+        } finally {
+
+            ic.endBatchEdit()
+        }
 
         /*
-         * Restore cursor position after the
-         * decoded "before" section.
+         * Recover context after decoding.
          */
-        val newCursorPosition =
-            decodedBefore.length
+        rawWordBuffer.clear()
+        encodedLengthsPerChar.clear()
 
-        ic.setSelection(
-            newCursorPosition,
-            newCursorPosition
-        )
+        recoverPreviousWord()
 
-        ic.endBatchEdit()
+        updateContextSuggestions()
     }
 
     // =========================================================
@@ -1284,8 +1357,8 @@ class CipherKeysIME :
     }
 
     /**
-     * Vibration compatible with older
-     * and newer Android versions.
+     * Haptic feedback compatible with old and
+     * newer Android versions.
      */
     private fun vibrate() {
 
@@ -1347,6 +1420,7 @@ class CipherKeysIME :
         serviceJob.cancel()
 
         backgroundBitmap?.recycle()
+
         backgroundBitmap = null
 
         super.onDestroy()
