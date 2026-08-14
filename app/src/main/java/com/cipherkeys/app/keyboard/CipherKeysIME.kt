@@ -1587,16 +1587,22 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
     private fun finalizeWord() {
 
-        rawWordBuffer.clear()
+    // Teach the dictionary what the user just typed.
+    // This makes frequently used personal words available
+    // as future suggestions.
+    val completedWord = rawWordBuffer.toString().trim()
 
-        encodedLengthsPerChar.clear()
-
-        updateSuggestions()
+    if (completedWord.length >= 2) {
+        dictionary.learnWord(completedWord)
     }
 
-    // =========================================================
-    // AUTOCORRECT
-    // =========================================================
+    rawWordBuffer.clear()
+    encodedLengthsPerChar.clear()
+
+    if (::keyboardView.isInitialized) {
+        keyboardView.setSuggestions(emptyList())
+    }
+}
 
     private fun maybeAutocorrectBeforeBoundary() {
 
