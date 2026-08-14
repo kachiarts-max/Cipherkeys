@@ -9,13 +9,10 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.util.Base64
 import android.view.View
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputConnection
 import com.cipherkeys.app.data.KeyboardMode
 import com.cipherkeys.app.data.KeyboardSettings
-import com.cipherkeys.app.data.SettingsRepository
 import com.cipherkeys.app.data.KeyboardTheme
 import com.cipherkeys.app.decoder.CipherKeysDecoder
 import com.cipherkeys.app.encoder.ClassicLeetEncoder
@@ -23,6 +20,8 @@ import com.cipherkeys.app.encoder.Encoder
 import com.cipherkeys.app.encoder.EliteEncoder
 import com.cipherkeys.app.encoder.HackerEncoder
 import com.cipherkeys.app.encoder.UltraEncoder
+import com.cipherkeys.app.data.SettingsRepository
+import com.cipherkeys.app.dictionary.ContextPredictor
 import com.cipherkeys.app.dictionary.Dictionary
 import com.cipherkeys.app.dictionary.EnglishLexicon
 import com.cipherkeys.app.emoji.RecentEmojiStore
@@ -33,39 +32,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The main CipherKeys Android keyboard service.
+ * The real Android keyboard service for CipherKeys.
  *
- * CipherKeys contains:
+ * Responsibilities:
  *
- * - Normal typing
- * - Leet / Elite / Hacker / Ultra modes
- * - Suggestions
- * - Personal vocabulary
- * - Learned words
- * - Contextual word prediction
- * - Common contractions
- * - Autocorrect
- * - Emoji
- * - Background/theme support
- * - Vibration
- * - Key sounds
- *
- * The learning system works entirely on-device.
- *
- * CipherKeys learns:
- *
- * 1. Words the user repeatedly types.
- * 2. Which words commonly follow other words.
- *
- * Example:
- *
- *     "good morning"
- *
- * After repeated use:
- *
- *     good -> morning
- *
- * becomes a learned relationship.
+ * - Own the InputConnection lifecycle
+ * - Send key presses to the active encoder
+ * - Manage word tracking
+ * - Provide dictionary suggestions
+ * - Learn new vocabulary
+ * - Learn word-to-word context
+ * - Provide context-aware predictions
+ * - Handle emoji
+ * - Handle themes/backgrounds/settings
  */
 class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
@@ -85,7 +64,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     private var currentMode: KeyboardMode =
         KeyboardMode.default()
 
-    private var shiftEnabled = false
+    private var shiftEnabled: Boolean = false
 
     private lateinit var classicEncoder: Encoder
     private lateinit var eliteEncoder: Encoder
@@ -93,205 +72,59 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
     private lateinit var ultraEncoder: Encoder
     private lateinit var decoder: CipherKeysDecoder
 
+    /**
+     * Main English dictionary.
+     */
     private lateinit var dictionary: Dictionary
+
+    /**
+     * Context-learning engine.
+     *
+     * Learns relationships such as:
+     *
+     * I -> am
+     * thank -> you
+     * see -> you
+     */
+    private lateinit var contextPredictor: ContextPredictor
+
     private lateinit var recentEmojiStore: RecentEmojiStore
 
     private var backgroundBitmap: Bitmap? = null
 
-    // =========================================================
-    // PERSONAL VOCABULARY
-    // =========================================================
-
     /**
-     * Stores the number of times each personal word has been used.
-     *
-     * Example:
-     *
-     * "kachiarts" -> 14
-     * "bro"       -> 8
-     * "onye"      -> 5
-     */
-    private lateinit var vocabularyPrefs:
-        android.content.SharedPreferences
-
-    private val learnedWords =
-        LinkedHashMap<String, Int>()
-
-    // =========================================================
-    // CONTEXTUAL LEARNING
-    // =========================================================
-
-    /**
-     * Stores word -> following word relationships.
-     *
-     * Example:
-     *
-     * good -> morning = 12
-     * good -> evening = 4
-     *
-     * This allows CipherKeys to understand that after
-     * "good", "morning" is more likely than "zebra".
-     */
-    private lateinit var contextPrefs:
-        android.content.SharedPreferences
-
-    /**
-     * Current previous completed word.
-     *
-     * Example:
-     *
-     * User types:
-     *
-     * "good "
-     *
-     * previousWord becomes:
-     *
-     * "good"
-     */
-    private var previousWord = ""
-
-    /**
-     * Maximum number of contextual relationships stored.
-     */
-    private val maximumContextEntries = 10000
-
-    // =========================================================
-    // WORD BUFFER
-    // =========================================================
-
-    /**
-     * Raw English word currently being typed.
-     *
-     * This is deliberately separate from what is actually committed
-     * to the text field because CipherKeys modes may transform:
-     *
-     * h -> |-| 
-     *
-     * while the raw word remains:
-     *
-     * h
+     * Current word being typed in plain English.
      */
     private val rawWordBuffer =
         StringBuilder()
 
     /**
-     * Number of committed encoded characters produced by each
-     * raw character.
+     * Number of encoded characters produced
+     * for each raw character.
      */
     private val encodedLengthsPerChar =
         mutableListOf<Int>()
 
-    // =========================================================
-    // COMMON CONTRACTIONS
-    // =========================================================
-
-    private val commonContractions = listOf(
-
-        "ain't",
-        "aren't",
-
-        "can't",
-        "couldn't",
-        "could've",
-        "couldn't've",
-
-        "didn't",
-        "doesn't",
-        "don't",
-
-        "hadn't",
-        "hasn't",
-        "haven't",
-
-        "he'd",
-        "he'll",
-        "he's",
-
-        "how'd",
-        "how'll",
-        "how's",
-
-        "I'd",
-        "I'll",
-        "I'm",
-        "I've",
-
-        "isn't",
-
-        "it'd",
-        "it'll",
-        "it's",
-
-        "let's",
-
-        "might've",
-        "mustn't",
-        "must've",
-
-        "needn't",
-
-        "she'd",
-        "she'll",
-        "she's",
-
-        "shouldn't",
-        "should've",
-
-        "that'd",
-        "that'll",
-        "that's",
-
-        "there'd",
-        "there'll",
-        "there's",
-
-        "they'd",
-        "they'll",
-        "they're",
-        "they've",
-
-        "wasn't",
-
-        "we'd",
-        "we'll",
-        "we're",
-        "we've",
-
-        "weren't",
-
-        "what'd",
-        "what'll",
-        "what's",
-
-        "when'd",
-        "when's",
-
-        "where'd",
-        "where's",
-
-        "who'd",
-        "who'll",
-        "who's",
-
-        "why'd",
-        "why's",
-
-        "won't",
-        "wouldn't",
-        "would've",
-
-        "you'd",
-        "you'll",
-        "you're",
-        "you've"
-    )
-
-    // =========================================================
-    // CREATE
-    // =========================================================
+    /**
+     * Most recently completed word.
+     *
+     * Example:
+     *
+     * User types:
+     *
+     * "I am"
+     *
+     * After "I":
+     *
+     * lastCompletedWord = "i"
+     *
+     * After "am":
+     *
+     * lastCompletedWord = "am"
+     */
+    private var lastCompletedWord: String = ""
 
     override fun onCreate() {
-
         super.onCreate()
 
         settingsRepository =
@@ -304,29 +137,23 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                 applicationContext
             )
 
+        contextPredictor =
+            ContextPredictor(
+                applicationContext
+            )
+
         recentEmojiStore =
             RecentEmojiStore(
                 applicationContext
             )
 
-        vocabularyPrefs =
-            getSharedPreferences(
-                "cipherkeys_personal_vocabulary",
-                Context.MODE_PRIVATE
-            )
-
-        contextPrefs =
-            getSharedPreferences(
-                "cipherkeys_context_learning",
-                Context.MODE_PRIVATE
-            )
-
-        loadLearnedWords()
-
         rebuildEncoders(
             emptyMap()
         )
 
+        /*
+         * Listen for settings changes.
+         */
         serviceScope.launch {
 
             settingsRepository.settingsFlow.collect { settings ->
@@ -339,11 +166,9 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                     settings.backgroundImagePath !=
                             currentSettings.backgroundImagePath
 
-                currentSettings =
-                    settings
+                currentSettings = settings
 
                 if (mappingsChanged) {
-
                     rebuildEncoders(
                         settings.customMappings
                     )
@@ -352,9 +177,10 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                 if (backgroundPathChanged) {
 
                     backgroundBitmap =
-                        settings.backgroundImagePath?.let {
-                            decodeBackgroundBitmap(it)
-                        }
+                        settings.backgroundImagePath
+                            ?.let {
+                                decodeBackgroundBitmap(it)
+                            }
                 }
 
                 if (::keyboardView.isInitialized) {
@@ -365,17 +191,24 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                         settings.customColors
                     )
 
-                    keyboardView.setBackgroundImage(
-                        if (settings.useImageBackground)
+                    val bitmapToShow =
+                        if (settings.useImageBackground) {
                             backgroundBitmap
-                        else
-                            null,
+                        } else {
+                            null
+                        }
+
+                    keyboardView.setBackgroundImage(
+                        bitmapToShow,
                         settings.backgroundOverlayAlpha
                     )
                 }
             }
         }
 
+        /*
+         * Listen for recent emoji updates.
+         */
         serviceScope.launch {
 
             recentEmojiStore.recentsFlow.collect { recents ->
@@ -389,10 +222,6 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             }
         }
     }
-
-    // =========================================================
-    // ENCODERS
-    // =========================================================
 
     private fun rebuildEncoders(
         customMappings: Map<Char, List<String>>
@@ -424,10 +253,6 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             )
     }
 
-    // =========================================================
-    // BACKGROUND
-    // =========================================================
-
     private suspend fun decodeBackgroundBitmap(
         path: String
     ): Bitmap? =
@@ -445,28 +270,20 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
                     options
                 )
 
-            } catch (
-                e: Exception
-            ) {
+            } catch (e: Exception) {
 
                 null
             }
         }
-
-    // =========================================================
-    // INPUT VIEW
-    // =========================================================
 
     override fun onCreateInputView(): View {
 
         val view =
             CipherKeysKeyboardView(this)
 
-        view.listener =
-            this
+        view.listener = this
 
-        keyboardView =
-            view
+        keyboardView = view
 
         keyboardView.applyThemeAndHeight(
             currentSettings.theme,
@@ -475,19 +292,16 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         )
 
         keyboardView.setBackgroundImage(
-            if (currentSettings.useImageBackground)
+            if (currentSettings.useImageBackground) {
                 backgroundBitmap
-            else
-                null,
+            } else {
+                null
+            },
             currentSettings.backgroundOverlayAlpha
         )
 
         return view
     }
-
-    // =========================================================
-    // START INPUT
-    // =========================================================
 
     override fun onStartInputView(
         info: EditorInfo?,
@@ -502,8 +316,9 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         currentMode =
             currentSettings.defaultMode
 
-        shiftEnabled =
-            false
+        shiftEnabled = false
+
+        lastCompletedWord = ""
 
         keyboardView.setMode(
             currentMode
@@ -513,66 +328,41 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             false
         )
 
-        rawWordBuffer.clear()
-
-        encodedLengthsPerChar.clear()
+        finalizeWord()
 
         /*
-         * Try to determine the word immediately before the cursor.
+         * Try to recover the last word already present
+         * before the cursor.
          *
-         * This means if the user opens a text field containing:
-         *
-         * "good "
-         *
-         * CipherKeys can immediately understand that the previous
-         * word is "good".
+         * This helps context prediction when the user
+         * enters an existing text field.
          */
-        previousWord =
-            readPreviousWordFromEditor()
+        recoverPreviousWord()
 
-        updateSuggestions()
-
-        if (
-            currentSettings.autoDecodeEnabled
-        ) {
-
+        if (currentSettings.autoDecodeEnabled) {
             decodeExistingFieldText()
         }
     }
 
     // =========================================================
-    // CHARACTER INPUT
+    // KEYBOARD ACTIONS
     // =========================================================
 
-    override fun onCharKey(
-        char: Char
-    ) {
+    override fun onCharKey(char: Char) {
 
         val ic =
             currentInputConnection
                 ?: return
 
         val effectiveChar =
-            if (shiftEnabled)
+            if (shiftEnabled) {
                 char.uppercaseChar()
-            else
+            } else {
                 char
-
-        val isApostrophe =
-            effectiveChar == '\'' ||
-                    effectiveChar == '’'
-
-        val isLetter =
-            effectiveChar.isLetter()
-
-        val isWordCharacter =
-            isLetter ||
-                    isApostrophe
+            }
 
         val output =
-            if (
-                currentSettings.autoEncodeEnabled
-            ) {
+            if (currentSettings.autoEncodeEnabled) {
 
                 when (currentMode) {
 
@@ -613,51 +403,35 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
         performFeedback()
 
-        if (isWordCharacter) {
+        if (effectiveChar.isLetter()) {
 
-            /*
-             * Apostrophe cannot begin a word.
-             */
-            if (
-                isApostrophe &&
-                rawWordBuffer.isEmpty()
-            ) {
+            rawWordBuffer.append(
+                effectiveChar
+            )
 
-                finalizeWord()
+            encodedLengthsPerChar.add(
+                output.length
+            )
 
-            } else {
-
-                rawWordBuffer.append(
-                    effectiveChar
-                )
-
-                encodedLengthsPerChar.add(
-                    output.length
-                )
-
-                updateSuggestions()
-            }
+            updateSuggestions()
 
         } else {
 
+            /*
+             * Punctuation ends the current word.
+             */
             completeCurrentWord()
 
             /*
-             * A punctuation character is itself a boundary.
+             * Keep context predictions visible
+             * after punctuation where appropriate.
              */
-            if (
-                effectiveChar != '\'' &&
-                effectiveChar != '’'
-            ) {
-
-                updateSuggestions()
-            }
+            updateContextSuggestions()
         }
 
         if (shiftEnabled) {
 
-            shiftEnabled =
-                false
+            shiftEnabled = false
 
             keyboardView.setShiftState(
                 false
@@ -665,49 +439,13 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         }
     }
 
-    // =========================================================
-    // SPACE
-    // =========================================================
-
     override fun onSpace() {
 
-        maybeAutocorrectBeforeBoundary()
-
-        val completedWord =
-            rawWordBuffer
-                .toString()
-                .trim()
-
-        if (completedWord.isNotEmpty()) {
-
-            /*
-             * Learn the word itself.
-             */
-            learnWord(
-                completedWord
-            )
-
-            /*
-             * Learn the relationship:
-             *
-             * previousWord -> completedWord
-             */
-            if (
-                previousWord.isNotEmpty()
-            ) {
-
-                learnContextPair(
-                    previousWord,
-                    completedWord
-                )
-            }
-
-            /*
-             * This word now becomes the previous word.
-             */
-            previousWord =
-                completedWord.lowercase()
-        }
+        /*
+         * Finish and learn the word before
+         * inserting the space.
+         */
+        completeCurrentWord()
 
         currentInputConnection?.commitText(
             " ",
@@ -716,19 +454,11 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
         performFeedback()
 
-        rawWordBuffer.clear()
-
-        encodedLengthsPerChar.clear()
-
         /*
-         * Immediately show contextual suggestions.
+         * Show predictions for the next word.
          */
-        updateSuggestions()
+        updateContextSuggestions()
     }
-
-    // =========================================================
-    // BACKSPACE
-    // =========================================================
 
     override fun onBackspace() {
 
@@ -739,9 +469,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         val selected =
             ic.getSelectedText(0)
 
-        if (
-            !selected.isNullOrEmpty()
-        ) {
+        if (!selected.isNullOrEmpty()) {
 
             ic.commitText(
                 "",
@@ -752,32 +480,20 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             rawWordBuffer.isNotEmpty()
         ) {
 
-            val lastIndex =
-                encodedLengthsPerChar.lastIndex
-
-            if (lastIndex >= 0) {
-
-                val encodedLength =
-                    encodedLengthsPerChar.removeAt(
-                        lastIndex
+            val lastEncodedLength =
+                encodedLengthsPerChar
+                    .removeAt(
+                        encodedLengthsPerChar.lastIndex
                     )
 
-                rawWordBuffer.deleteCharAt(
-                    rawWordBuffer.lastIndex
-                )
+            rawWordBuffer.deleteCharAt(
+                rawWordBuffer.lastIndex
+            )
 
-                ic.deleteSurroundingText(
-                    encodedLength,
-                    0
-                )
-
-            } else {
-
-                ic.deleteSurroundingText(
-                    1,
-                    0
-                )
-            }
+            ic.deleteSurroundingText(
+                lastEncodedLength,
+                0
+            )
 
             updateSuggestions()
 
@@ -789,20 +505,17 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             )
 
             /*
-             * Re-read the word before the cursor after deleting.
+             * If we backspace over a space,
+             * try to recover the previous word
+             * from the field.
              */
-            previousWord =
-                readPreviousWordFromEditor()
+            recoverPreviousWord()
 
-            updateSuggestions()
+            updateContextSuggestions()
         }
 
         performFeedback()
     }
-
-    // =========================================================
-    // ENTER
-    // =========================================================
 
     override fun onEnter() {
 
@@ -810,31 +523,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             currentInputConnection
                 ?: return
 
-        maybeAutocorrectBeforeBoundary()
-
-        val completedWord =
-            rawWordBuffer
-                .toString()
-                .trim()
-
-        if (
-            completedWord.isNotEmpty()
-        ) {
-
-            learnWord(
-                completedWord
-            )
-
-            if (
-                previousWord.isNotEmpty()
-            ) {
-
-                learnContextPair(
-                    previousWord,
-                    completedWord
-                )
-            }
-        }
+        completeCurrentWord()
 
         val editorInfo =
             currentInputEditorInfo
@@ -842,9 +531,7 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
         val action =
             editorInfo
                 ?.imeOptions
-                ?.and(
-                    EditorInfo.IME_MASK_ACTION
-                )
+                ?.and(EditorInfo.IME_MASK_ACTION)
 
         if (
             action != null &&
@@ -869,14 +556,10 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
 
         performFeedback()
 
-        previousWord = ""
-
         finalizeWord()
-    }
 
-    // =========================================================
-    // SHIFT
-    // =========================================================
+        lastCompletedWord = ""
+    }
 
     override fun onShiftToggle() {
 
@@ -884,45 +567,86 @@ class CipherKeysIME : InputMethodService(), KeyboardActionListener {
             !shiftEnabled
     }
 
-    // =========================================================
-    // MODE
-    // =========================================================
-
     override fun onModeSelected(
         mode: KeyboardMode
     ) {
 
-        currentMode =
-            mode
+        currentMode = mode
 
-        finalizeWord()
+        completeCurrentWord()
 
-        if (
-            mode == KeyboardMode.DECODE
-        ) {
+        if (mode == KeyboardMode.DECODE) {
 
             decodeExistingFieldText()
         }
     }
 
-    // =========================================================
-    // SUGGESTION CLICK
-    // =========================================================
-override fun onSuggestionSelected(word: String) {
-    val ic = currentInputConnection ?: return
+    override fun onSuggestionSelected(
+        word: String
+    ) {
 
-    // Treat selecting a suggestion as a strong indication
-    // that the user actually wanted this word.
-    dictionary.learnWord(word)
+        val ic =
+            currentInputConnection
+                ?: return
 
-    replaceCurrentWord(ic, word)
+        /*
+         * Selecting a suggestion is strong evidence
+         * that the user actually wanted this word.
+         */
+        dictionary.learnWord(
+            word
+        )
 
-    ic.commitText(" ", 1)
+        /*
+         * Teach the context engine too.
+         *
+         * Example:
+         *
+         * previous = "thank"
+         * selected = "you"
+         *
+         * learns:
+         *
+         * thank -> you
+         */
+        if (
+            lastCompletedWord.isNotBlank()
+        ) {
 
-    finalizeWord()
+            contextPredictor.learn(
+                lastCompletedWord,
+                word
+            )
+        }
 
-    performFeedback()
-}
+        replaceCurrentWord(
+            ic,
+            word
+        )
+
+        /*
+         * The selected word is now the most
+         * recently completed word.
+         */
+        lastCompletedWord =
+            word.lowercase()
+
+        ic.commitText(
+            " ",
+            1
+        )
+
+        /*
+         * Immediately show predictions for
+         * the word that follows the selected one.
+         */
+        rawWordBuffer.clear()
+        encodedLengthsPerChar.clear()
+
+        updateContextSuggestions()
+
+        performFeedback()
+    }
 
     override fun onEmojiSelected(
         emoji: String
@@ -947,537 +671,131 @@ override fun onSuggestionSelected(word: String) {
                 emoji
             )
         }
-
-        updateSuggestions()
-    }
-
-    // =========================================================
-    // PERSONAL VOCABULARY
-    // =========================================================
-
-    private fun loadLearnedWords() {
-
-        learnedWords.clear()
-
-        for (
-            entry in vocabularyPrefs.all
-        ) {
-
-            val count =
-                entry.value as? Int
-                    ?: continue
-
-            if (
-                entry.key.isNotBlank()
-            ) {
-
-                learnedWords[
-                    entry.key
-                ] = count
-            }
-        }
-    }
-
-    private fun saveLearnedWords() {
-
-        val editor =
-            vocabularyPrefs.edit()
-
-        editor.clear()
-
-        for (
-            (word, count) in learnedWords
-        ) {
-
-            editor.putInt(
-                word,
-                count
-            )
-        }
-
-        editor.apply()
-    }
-
-    private fun learnWord(
-        word: String
-    ) {
-
-        val normalized =
-            word
-                .trim()
-                .lowercase()
-
-        if (
-            normalized.length < 2
-        ) {
-            return
-        }
-
-        if (
-            !normalized.any {
-                it.isLetter()
-            }
-        ) {
-            return
-        }
-
-        learnedWords[
-            normalized
-        ] =
-            (learnedWords[
-                normalized
-            ] ?: 0) + 1
-
-        /*
-         * Keep the vocabulary from becoming enormous.
-         */
-        if (
-            learnedWords.size > 5000
-        ) {
-
-            val leastUsed =
-                learnedWords
-                    .entries
-                    .minByOrNull {
-                        it.value
-                    }
-
-            if (
-                leastUsed != null &&
-                leastUsed.value <= 2
-            ) {
-
-                learnedWords.remove(
-                    leastUsed.key
-                )
-            }
-        }
-
-        saveLearnedWords()
-    }
-
-    // =========================================================
-    // CONTEXT STORAGE
-    // =========================================================
-
-    /**
-     * Encodes a word safely so it can be used inside a
-     * SharedPreferences key.
-     */
-    private fun encodeStorageWord(
-        word: String
-    ): String {
-
-        return Base64.encodeToString(
-            word.lowercase().toByteArray(),
-            Base64.NO_WRAP
-        )
-    }
-
-    /**
-     * Creates a unique key for:
-     *
-     * previous word + next word
-     */
-    private fun contextKey(
-        previous: String,
-        next: String
-    ): String {
-
-        return "next_" +
-                encodeStorageWord(previous) +
-                "_" +
-                encodeStorageWord(next)
-    }
-
-    /**
-     * Learns:
-     *
-     * previous -> next
-     */
-    private fun learnContextPair(
-        previous: String,
-        next: String
-    ) {
-
-        val first =
-            previous
-                .trim()
-                .lowercase()
-
-        val second =
-            next
-                .trim()
-                .lowercase()
-
-        if (
-            first.length < 1 ||
-            second.length < 1
-        ) {
-            return
-        }
-
-        if (
-            !first.any { it.isLetter() } ||
-            !second.any { it.isLetter() }
-        ) {
-            return
-        }
-
-        val key =
-            contextKey(
-                first,
-                second
-            )
-
-        val current =
-            contextPrefs.getInt(
-                key,
-                0
-            )
-
-        contextPrefs.edit()
-            .putInt(
-                key,
-                current + 1
-            )
-            .apply()
-
-        trimContextStorage()
-    }
-
-    /**
-     * Returns the words most frequently used after [word].
-     */
-    private fun getContextSuggestions(
-        word: String,
-        prefix: String = "",
-        limit: Int = 8
-    ): List<String> {
-
-        if (
-            word.isBlank()
-        ) {
-            return emptyList()
-        }
-
-        val encodedPrevious =
-            encodeStorageWord(
-                word
-            )
-
-        val searchPrefix =
-            prefix.lowercase()
-
-        val results =
-            mutableListOf<Pair<String, Int>>()
-
-        for (
-            entry in contextPrefs.all
-        ) {
-
-            val key =
-                entry.key
-
-            if (
-                !key.startsWith(
-                    "next_${encodedPrevious}_"
-                )
-            ) {
-                continue
-            }
-
-            val count =
-                entry.value as? Int
-                    ?: continue
-
-            val encodedNext =
-                key.substringAfter(
-                    "next_${encodedPrevious}_"
-                )
-
-            val nextWord =
-                try {
-
-                    String(
-                        Base64.decode(
-                            encodedNext,
-                            Base64.NO_WRAP
-                        )
-                    )
-
-                } catch (
-                    e: Exception
-                ) {
-
-                    continue
-                }
-
-            if (
-                searchPrefix.isNotEmpty() &&
-                !nextWord.startsWith(
-                    searchPrefix
-                )
-            ) {
-                continue
-            }
-
-            results.add(
-                nextWord to count
-            )
-        }
-
-        return results
-            .sortedWith(
-                compareByDescending<Pair<String, Int>> {
-                    it.second
-                }.thenBy {
-                    it.first.length
-                }
-            )
-            .take(limit)
-            .map {
-                it.first
-            }
-    }
-
-    /**
-     * Prevents contextual storage from growing forever.
-     *
-     * We keep the strongest relationships.
-     */
-    private fun trimContextStorage() {
-
-        val all =
-            contextPrefs.all
-
-        if (
-            all.size <= maximumContextEntries
-        ) {
-            return
-        }
-
-        val entries =
-            all.entries
-                .mapNotNull { entry ->
-
-                    val count =
-                        entry.value as? Int
-                            ?: return@mapNotNull null
-
-                    entry.key to count
-                }
-                .sortedBy {
-                    it.second
-                }
-
-        val removeCount =
-            all.size -
-                    maximumContextEntries
-
-        val editor =
-            contextPrefs.edit()
-
-        entries
-            .take(removeCount)
-            .forEach {
-                editor.remove(
-                    it.first
-                )
-            }
-
-        editor.apply()
-    }
-
-    // =========================================================
-    // WORD KNOWLEDGE
-    // =========================================================
-
-    private fun isKnownWord(
-        word: String
-    ): Boolean {
-
-        val lower =
-            word.lowercase()
-
-        if (
-            dictionary.isValidWord(
-                lower
-            )
-        ) {
-            return true
-        }
-
-        if (
-            commonContractions.any {
-                it.equals(
-                    lower,
-                    ignoreCase = true
-                )
-            }
-        ) {
-            return true
-        }
-
-        return learnedWords.containsKey(
-            lower
-        )
     }
 
     // =========================================================
     // SMART SUGGESTIONS
     // =========================================================
 
+    /**
+     * Updates suggestions while the user is currently typing.
+     *
+     * Combines:
+     *
+     * 1. Context predictions
+     * 2. Learned vocabulary
+     * 3. Normal dictionary completions
+     */
     private fun updateSuggestions() {
 
-        if (
-            !::keyboardView.isInitialized
-        ) {
+        if (!::keyboardView.isInitialized) {
             return
         }
 
         val prefix =
-            rawWordBuffer
-                .toString()
-                .lowercase()
+            rawWordBuffer.toString()
 
-        /*
-         * -----------------------------------------------------
-         * CASE 1:
-         *
-         * No word is currently being typed.
-         *
-         * Example:
-         *
-         * "good "
-         *
-         * Show:
-         *
-         * morning | evening | night
-         * -----------------------------------------------------
-         */
-        if (
-            prefix.isEmpty()
-        ) {
+        if (prefix.isBlank()) {
 
-            val contextual =
-                getContextSuggestions(
-                    previousWord,
-                    "",
-                    3
-                )
-
-            keyboardView.setSuggestions(
-                contextual
-            )
+            updateContextSuggestions()
 
             return
         }
 
         /*
-         * -----------------------------------------------------
-         * CASE 2:
-         *
-         * User is currently typing.
-         *
-         * Example:
-         *
-         * previous = "good"
-         * prefix   = "m"
-         *
-         * Context:
-         *
-         * morning
-         *
-         * is ranked highly.
-         * -----------------------------------------------------
+         * Normal dictionary suggestions.
          */
-
-        val contextual =
-            getContextSuggestions(
-                previousWord,
+        val dictionarySuggestions =
+            dictionary.suggestCompletions(
                 prefix,
-                8
+                limit = 3
             )
 
-        val personal =
-            learnedWords
-                .filter {
-                    it.key.startsWith(
-                        prefix
-                    ) &&
-                            it.key != prefix
-                }
-                .entries
-                .sortedWith(
-                    compareByDescending<Map.Entry<String, Int>> {
-                        it.value
-                    }.thenBy {
-                        it.key.length
-                    }
-                )
-                .map {
-                    it.key
-                }
-                .take(8)
+        /*
+         * Context suggestions based on
+         * the previous completed word.
+         */
+        val contextSuggestions =
+            if (lastCompletedWord.isNotBlank()) {
 
-        val contractions =
-            commonContractions
-                .filter {
-                    it.lowercase()
-                        .startsWith(
-                            prefix
+                contextPredictor
+                    .suggestNextWords(
+                        lastCompletedWord,
+                        limit = 5
+                    )
+                    .filter {
+                        it.startsWith(
+                            prefix.lowercase()
                         )
-                }
+                    }
 
-        val dictionarySuggestions =
-            dictionary
-                .suggestCompletions(
-                    prefix,
-                    8
-                )
+            } else {
+
+                emptyList()
+            }
 
         /*
-         * Contextual predictions receive the highest priority.
-         *
-         * Then personal vocabulary.
-         *
-         * Then contractions.
-         *
-         * Then normal dictionary.
+         * Context gets priority because it represents
+         * what the user commonly says after the previous
+         * word.
          */
-        val merged =
-            LinkedHashSet<String>()
-
-        contextual.forEach {
-            merged.add(it)
-        }
-
-        personal.forEach {
-            merged.add(it)
-        }
-
-        contractions.forEach {
-            merged.add(it)
-        }
-
-        dictionarySuggestions.forEach {
-            merged.add(it)
-        }
+        val combined =
+            (
+                contextSuggestions +
+                        dictionarySuggestions
+                )
+                .distinct()
+                .take(3)
 
         keyboardView.setSuggestions(
-            merged.take(3)
+            combined
         )
     }
 
-    // =========================================================
-    // COMPLETE CURRENT WORD
-    // =========================================================
+    /**
+     * Show predictions when there is no active
+     * word being typed.
+     *
+     * Example:
+     *
+     * User types:
+     *
+     * "thank "
+     *
+     * Suggestions:
+     *
+     * you | god | goodness
+     */
+    private fun updateContextSuggestions() {
+
+        if (!::keyboardView.isInitialized) {
+            return
+        }
+
+        if (lastCompletedWord.isBlank()) {
+
+            keyboardView.setSuggestions(
+                emptyList()
+            )
+
+            return
+        }
+
+        val suggestions =
+            contextPredictor
+                .suggestNextWords(
+                    lastCompletedWord,
+                    limit = 3
+                )
+
+        keyboardView.setSuggestions(
+            suggestions
+        )
+    }
 
     /**
-     * Finishes the current word and teaches CipherKeys about it.
-     *
-     * This is used when punctuation/emoji/etc. creates a boundary.
+     * Completes the current word and teaches
+     * both learning systems.
      */
     private fun completeCurrentWord() {
 
@@ -1486,57 +804,56 @@ override fun onSuggestionSelected(word: String) {
                 .toString()
                 .trim()
 
-        if (
-            word.isNotEmpty()
-        ) {
+        if (word.isNotBlank()) {
 
-            learnWord(
+            /*
+             * Teach the dictionary.
+             */
+            dictionary.learnWord(
                 word
             )
 
+            /*
+             * Teach the word relationship.
+             */
             if (
-                previousWord.isNotEmpty()
+                lastCompletedWord.isNotBlank()
             ) {
 
-                learnContextPair(
-                    previousWord,
+                contextPredictor.learn(
+                    lastCompletedWord,
                     word
                 )
             }
 
-            previousWord =
+            /*
+             * This becomes the context for
+             * the next word.
+             */
+            lastCompletedWord =
                 word.lowercase()
         }
+
+        finalizeWord()
+    }
+
+    /**
+     * Clears the current word tracking state.
+     */
+    private fun finalizeWord() {
 
         rawWordBuffer.clear()
 
         encodedLengthsPerChar.clear()
     }
 
-    private fun finalizeWord() {
-
-    // Teach the dictionary what the user just typed.
-    // This makes frequently used personal words available
-    // as future suggestions.
-    val completedWord = rawWordBuffer.toString().trim()
-
-    if (completedWord.length >= 2) {
-        dictionary.learnWord(completedWord)
-    }
-
-    rawWordBuffer.clear()
-    encodedLengthsPerChar.clear()
-
-    if (::keyboardView.isInitialized) {
-        keyboardView.setSuggestions(emptyList())
-    }
-}
+    // =========================================================
+    // AUTOCORRECT
+    // =========================================================
 
     private fun maybeAutocorrectBeforeBoundary() {
 
-        if (
-            !currentSettings.autocorrectEnabled
-        ) {
+        if (!currentSettings.autocorrectEnabled) {
             return
         }
 
@@ -1552,24 +869,8 @@ override fun onSuggestionSelected(word: String) {
                 .toString()
 
         if (
-            word.length < 3
-        ) {
-            return
-        }
-
-        /*
-         * Contractions should never be autocorrected using
-         * normal dictionary edit distance.
-         */
-        if (
-            word.contains("'") ||
-            word.contains("’")
-        ) {
-            return
-        }
-
-        if (
-            isKnownWord(word)
+            word.length < 3 ||
+            dictionary.isValidWord(word)
         ) {
             return
         }
@@ -1578,7 +879,7 @@ override fun onSuggestionSelected(word: String) {
             dictionary
                 .suggestCorrections(
                     word,
-                    1
+                    limit = 1
                 )
                 .firstOrNull()
                 ?: return
@@ -1592,26 +893,26 @@ override fun onSuggestionSelected(word: String) {
             correction
         )
 
-        learnWord(
+        dictionary.learnWord(
             correction
         )
+
+        lastCompletedWord =
+            correction.lowercase()
     }
 
-    // =========================================================
-    // REPLACE CURRENT WORD
-    // =========================================================
-
+    /**
+     * Replaces the current word in the editor.
+     */
     private fun replaceCurrentWord(
-        ic: InputConnection,
+        ic: android.view.inputmethod.InputConnection,
         word: String
     ) {
 
         val committedLength =
             encodedLengthsPerChar.sum()
 
-        if (
-            committedLength > 0
-        ) {
+        if (committedLength > 0) {
 
             ic.deleteSurroundingText(
                 committedLength,
@@ -1619,13 +920,43 @@ override fun onSuggestionSelected(word: String) {
             )
         }
 
-        val output =
-            encodeWordIfNecessary(
+        val toInsert =
+            if (currentSettings.autoEncodeEnabled) {
+
+                when (currentMode) {
+
+                    KeyboardMode.NORMAL,
+                    KeyboardMode.DECODE ->
+                        word
+
+                    KeyboardMode.CLASSIC_LEET ->
+                        classicEncoder.encode(
+                            word
+                        )
+
+                    KeyboardMode.ELITE ->
+                        eliteEncoder.encode(
+                            word
+                        )
+
+                    KeyboardMode.HACKER ->
+                        hackerEncoder.encode(
+                            word
+                        )
+
+                    KeyboardMode.ULTRA ->
+                        ultraEncoder.encode(
+                            word
+                        )
+                }
+
+            } else {
+
                 word
-            )
+            }
 
         ic.commitText(
-            output,
+            toInsert,
             1
         )
 
@@ -1635,114 +966,43 @@ override fun onSuggestionSelected(word: String) {
     }
 
     // =========================================================
-    // ENCODE WORD
-    // =========================================================
-
-    private fun encodeWordIfNecessary(
-        word: String
-    ): String {
-
-        if (
-            !currentSettings.autoEncodeEnabled
-        ) {
-            return word
-        }
-
-        return when (currentMode) {
-
-            KeyboardMode.NORMAL,
-            KeyboardMode.DECODE ->
-                word
-
-            KeyboardMode.CLASSIC_LEET ->
-                classicEncoder.encode(
-                    word
-                )
-
-            KeyboardMode.ELITE ->
-                eliteEncoder.encode(
-                    word
-                )
-
-            KeyboardMode.HACKER ->
-                hackerEncoder.encode(
-                    word
-                )
-
-            KeyboardMode.ULTRA ->
-                ultraEncoder.encode(
-                    word
-                )
-        }
-    }
-
-    // =========================================================
-    // READ PREVIOUS WORD
+    // RECOVER PREVIOUS WORD
     // =========================================================
 
     /**
-     * Reads the word immediately before the cursor.
+     * Attempts to discover the word immediately before
+     * the cursor.
      *
-     * This makes contextual suggestions work even when the
-     * keyboard is opened in the middle of an existing sentence.
+     * This makes context prediction survive switching
+     * between fields or after certain backspace operations.
      */
-    private fun readPreviousWordFromEditor(): String {
+    private fun recoverPreviousWord() {
 
         val ic =
             currentInputConnection
-                ?: return ""
+                ?: return
 
         val before =
             ic.getTextBeforeCursor(
                 200,
                 0
             )?.toString()
-                .orEmpty()
+                ?: return
 
-        if (
-            before.isBlank()
-        ) {
-            return ""
-        }
-
-        /*
-         * Remove trailing spaces/punctuation.
-         */
-        val cleaned =
-            before
-                .trimEnd()
-                .replace(
-                    Regex(
-                        "[\\s.,!?;:()\\[\\]{}]+$"
-                    ),
-                    ""
-                )
-
-        if (
-            cleaned.isEmpty()
-        ) {
-            return ""
-        }
-
-        /*
-         * Capture the last word, including apostrophes.
-         */
         val match =
             Regex(
-                "([A-Za-zÀ-ÿ]+(?:['’][A-Za-zÀ-ÿ]+)*)$"
-            ).find(
-                cleaned
-            )
+                "[A-Za-z']+$"
+            ).find(before)
 
-        return match
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.lowercase()
-            .orEmpty()
+        lastCompletedWord =
+            match
+                ?.value
+                ?.lowercase()
+                .orEmpty()
     }
 
     // =========================================================
-    // DECODE EXISTING FIELD
+    // DECODER
     // =========================================================
 
     private fun decodeExistingFieldText() {
@@ -1814,7 +1074,6 @@ override fun onSuggestionSelected(word: String) {
         if (
             currentSettings.vibrationEnabled
         ) {
-
             vibrate()
         }
 
@@ -1822,12 +1081,12 @@ override fun onSuggestionSelected(word: String) {
             currentSettings.keySoundEnabled
         ) {
 
-            val audioManager =
+            val am =
                 getSystemService(
                     Context.AUDIO_SERVICE
                 ) as? AudioManager
 
-            audioManager?.playSoundEffect(
+            am?.playSoundEffect(
                 AudioManager.FX_KEYPRESS_STANDARD
             )
         }
@@ -1883,10 +1142,6 @@ override fun onSuggestionSelected(word: String) {
             }
         }
     }
-
-    // =========================================================
-    // DESTROY
-    // =========================================================
 
     override fun onDestroy() {
 
