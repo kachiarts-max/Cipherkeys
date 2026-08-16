@@ -1,14 +1,16 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.cipherkeys.app.settings
 
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.provider.Settings
-import androidx.activity.compose.PickVisualMediaRequest
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -18,14 +20,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -36,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,771 +61,886 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+/* ============================================================
+   CIPHERKEYS APP COLORS
+   ============================================================ */
+
+private val CipherBlack = ComposeColor(0xFF080B10)
+private val CipherBackground = ComposeColor(0xFFF5F7FA)
+
+private val CipherWhite = ComposeColor(0xFFFFFFFF)
+
+private val CipherBlue = ComposeColor(0xFF1976D2)
+private val CipherBlueDark = ComposeColor(0xFF0D47A1)
+private val CipherBlueLight = ComposeColor(0xFF42A5F5)
+
+private val CipherTextDark = ComposeColor(0xFF111827)
+private val CipherText = ComposeColor(0xFFF7F9FC)
+private val CipherMuted = ComposeColor(0xFF667085)
+
+private val CipherCard = ComposeColor(0xFFFFFFFF)
+private val CipherCardDark = ComposeColor(0xFF111827)
+
+private val CipherBorder = ComposeColor(0xFFE2E6EC)
+private val CipherBorderDark = ComposeColor(0xFF273244)
+
+private val CipherSoftBlue = ComposeColor(0xFFEAF3FF)
+
+/* ============================================================
+   APP COLOR SCHEME
+   ============================================================ */
+
+private val CipherKeysColors = darkColorScheme(
+    primary = CipherBlue,
+    onPrimary = ComposeColor.White,
+
+    secondary = CipherBlueLight,
+    onSecondary = ComposeColor.White,
+
+    background = CipherBlack,
+    onBackground = CipherText,
+
+    surface = CipherCardDark,
+    onSurface = CipherText,
+
+    surfaceVariant = ComposeColor(0xFF1A2230),
+    onSurfaceVariant = ComposeColor(0xFFB5BFCE),
+
+    outline = CipherBorderDark
+)
+
+/* ============================================================
+   SETTINGS SCREEN
+   ============================================================ */
+
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel) {
 
     val settings by viewModel.uiState.collectAsState()
+
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
     /*
      * IMAGE PICKER
-     *
-     * The selected image is copied into CipherKeys'
-     * private storage so the keyboard service can access it later.
      */
 
-    val pickImageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
+    val pickImageLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickVisualMedia()
+        ) { uri: Uri? ->
 
-        if (uri != null) {
+            if (uri != null) {
 
-            coroutineScope.launch {
+                coroutineScope.launch {
 
-                val savedPath = withContext(Dispatchers.IO) {
+                    val savedPath =
+                        withContext(Dispatchers.IO) {
 
-                    try {
+                            try {
 
-                        val outFile = File(
-                            context.filesDir,
-                            "cipherkeys_background.jpg"
+                                val outFile =
+                                    File(
+                                        context.filesDir,
+                                        "cipherkeys_background.jpg"
+                                    )
+
+                                context.contentResolver
+                                    .openInputStream(uri)
+                                    ?.use { input ->
+
+                                        outFile
+                                            .outputStream()
+                                            .use { output ->
+
+                                                input.copyTo(output)
+                                            }
+                                    }
+
+                                outFile.absolutePath
+
+                            } catch (e: Exception) {
+
+                                null
+                            }
+                        }
+
+                    if (savedPath != null) {
+
+                        viewModel.setBackgroundImagePath(
+                            savedPath
                         )
 
-                        context.contentResolver
-                            .openInputStream(uri)
-                            ?.use { input ->
-
-                                outFile.outputStream().use { output ->
-                                    input.copyTo(output)
-                                }
-                            }
-
-                        outFile.absolutePath
-
-                    } catch (e: Exception) {
-
-                        null
+                        viewModel.setUseImageBackground(
+                            true
+                        )
                     }
-                }
-
-                if (savedPath != null) {
-
-                    viewModel.setBackgroundImagePath(savedPath)
-                    viewModel.setUseImageBackground(true)
                 }
             }
         }
-    }
 
     /*
      * APP UI
-     *
-     * This screen intentionally uses CipherKeysTheme
-     * from the application's root theme.
-     *
-     * It does NOT create a separate keyboard color theme.
      */
 
-    Scaffold(
+    MaterialTheme(
+        colorScheme = CipherKeysColors
+    ) {
 
-        containerColor = MaterialTheme.colorScheme.background,
+        Scaffold(
 
-        topBar = {
+            containerColor = CipherBlack,
 
-            TopAppBar(
+            topBar = {
 
-                title = {
+                TopAppBar(
 
-                    Column {
+                    title = {
+
+                        Column {
+
+                            Text(
+                                text = "CipherKeys",
+                                fontWeight = FontWeight.Bold,
+                                color = CipherWhite
+                            )
+
+                            Text(
+                                text = "Control Center",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CipherMuted
+                            )
+                        }
+                    },
+
+                    colors =
+                        TopAppBarDefaults.topAppBarColors(
+                            containerColor = CipherBlack,
+                            titleContentColor = CipherWhite
+                        )
+                )
+            }
+
+        ) { padding ->
+
+            LazyColumn(
+
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(CipherBlack)
+                    .padding(padding),
+
+                contentPadding =
+                    PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 14.dp,
+                        bottom = 40.dp
+                    ),
+
+                verticalArrangement =
+                    Arrangement.spacedBy(12.dp)
+            ) {
+
+                /* ====================================================
+                   HEADER
+                   ==================================================== */
+
+                item {
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                top = 4.dp,
+                                bottom = 8.dp
+                            )
+                    ) {
 
                         Text(
                             text = "CipherKeys",
-                            fontWeight = FontWeight.Bold
+                            style =
+                                MaterialTheme.typography
+                                    .headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = CipherWhite
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(4.dp)
                         )
 
                         Text(
-                            text = "CONTROL CENTER",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground
-                )
-            )
-        }
-
-    ) { padding ->
-
-        LazyColumn(
-
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(padding),
-
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 12.dp,
-                bottom = 40.dp
-            ),
-
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-
-            /*
-             * ==================================================
-             * HERO
-             * ==================================================
-             */
-
-            item {
-
-                Column(
-                    modifier = Modifier.padding(
-                        top = 8.dp,
-                        bottom = 8.dp
-                    )
-                ) {
-
-                    Text(
-                        text = "Your keyboard.",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-
-                    Text(
-                        text = "Your rules.",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(8.dp)
-                    )
-
-                    Text(
-                        text = "Configure how CipherKeys behaves while you type.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            /*
-             * ==================================================
-             * QUICK SETUP
-             * ==================================================
-             */
-
-            item {
-
-                SectionHeader(
-                    title = "QUICK SETUP",
-                    subtitle = "Get CipherKeys ready"
-                )
-            }
-
-            item {
-
-                SettingCard {
-
-                    Text(
-                        text = "CipherKeys Keyboard",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(5.dp)
-                    )
-
-                    Text(
-                        text = "Enable CipherKeys as an Android keyboard to start using it.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(16.dp)
-                    )
-
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-
-                        onClick = {
-
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_INPUT_METHOD_SETTINGS
-                                )
-                            )
-                        },
-
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    ) {
-
-                        Text(
-                            text = "Enable CipherKeys",
-                            fontWeight = FontWeight.SemiBold
+                            text =
+                                "Customize your keyboard experience.",
+                            style =
+                                MaterialTheme.typography
+                                    .bodyMedium,
+                            color = CipherMuted
                         )
                     }
                 }
-            }
 
-            /*
-             * ==================================================
-             * KEYBOARD
-             * ==================================================
-             */
+                /* ====================================================
+                   QUICK SETUP
+                   ==================================================== */
 
-            item {
+                item {
 
-                SectionHeader(
-                    title = "KEYBOARD",
-                    subtitle = "Control your typing experience"
-                )
-            }
-
-            item {
-
-                SettingCard {
-
-                    Text(
-                        text = "Default mode",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(5.dp)
-                    )
-
-                    Text(
-                        text = "Choose the mode CipherKeys starts with.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(12.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-
-                        KeyboardMode.entries.forEach { mode ->
-
-                            FilterChip(
-
-                                selected = settings.defaultMode == mode,
-
-                                onClick = {
-                                    viewModel.setDefaultMode(mode)
-                                },
-
-                                label = {
-                                    Text(mode.label)
-                                },
-
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor =
-                                        MaterialTheme.colorScheme.primary,
-
-                                    selectedLabelColor =
-                                        MaterialTheme.colorScheme.onPrimary
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-
-                SettingCard {
-
-                    Text(
-                        text = "Keyboard height",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(4.dp)
-                    )
-
-                    Text(
-                        text = "Adjust the size of the keyboard.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(8.dp)
-                    )
-
-                    Slider(
-
-                        value = settings.keyboardHeightScale,
-
-                        onValueChange = {
-                            viewModel.setHeightScale(it)
-                        },
-
-                        valueRange = 0.8f..1.3f
+                    SectionHeader(
+                        title = "QUICK SETUP",
+                        subtitle =
+                            "Get your keyboard ready"
                     )
                 }
-            }
 
-            item {
+                item {
 
-                SettingCard {
+                    Card(
 
-                    Text(
-                        text = "Keyboard theme",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                        modifier =
+                            Modifier.fillMaxWidth(),
 
-                    Spacer(
-                        modifier = Modifier.height(10.dp)
-                    )
+                        shape =
+                            androidx.compose.foundation
+                                .shape.RoundedCornerShape(
+                                    18.dp
+                                ),
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-
-                        KeyboardTheme.entries.forEach { theme ->
-
-                            FilterChip(
-
-                                selected = settings.theme == theme,
-
-                                onClick = {
-                                    viewModel.setTheme(theme)
-                                },
-
-                                label = {
-                                    Text(theme.label)
-                                },
-
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor =
-                                        MaterialTheme.colorScheme.primary,
-
-                                    selectedLabelColor =
-                                        MaterialTheme.colorScheme.onPrimary
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-
-            /*
-             * ==================================================
-             * AUTOMATION
-             * ==================================================
-             */
-
-            item {
-
-                SectionHeader(
-                    title = "AUTOMATION",
-                    subtitle = "Let CipherKeys work automatically"
-                )
-            }
-
-            item {
-
-                SettingCard {
-
-                    ToggleSetting(
-                        title = "Auto encode",
-                        description =
-                            "Automatically transform text while typing.",
-
-                        checked = settings.autoEncodeEnabled,
-
-                        onCheckedChange =
-                            viewModel::setAutoEncode
-                    )
-
-                    SettingDivider()
-
-                    ToggleSetting(
-                        title = "Auto decode on focus",
-                        description =
-                            "Decode supported text when a field receives focus.",
-
-                        checked = settings.autoDecodeEnabled,
-
-                        onCheckedChange =
-                            viewModel::setAutoDecode
-                    )
-
-                    SettingDivider()
-
-                    ToggleSetting(
-                        title = "Autocorrect",
-                        description =
-                            "Normal and Decode modes only.",
-
-                        checked = settings.autocorrectEnabled,
-
-                        onCheckedChange =
-                            viewModel::setAutocorrect
-                    )
-                }
-            }
-
-            /*
-             * ==================================================
-             * EXPERIENCE
-             * ==================================================
-             */
-
-            item {
-
-                SectionHeader(
-                    title = "EXPERIENCE",
-                    subtitle = "Control feedback while typing"
-                )
-            }
-
-            item {
-
-                SettingCard {
-
-                    ToggleSetting(
-                        title = "Vibration",
-                        description =
-                            "Feel a small response when keys are pressed.",
-
-                        checked = settings.vibrationEnabled,
-
-                        onCheckedChange =
-                            viewModel::setVibration
-                    )
-
-                    SettingDivider()
-
-                    ToggleSetting(
-                        title = "Key sound",
-                        description =
-                            "Play a sound when typing.",
-
-                        checked = settings.keySoundEnabled,
-
-                        onCheckedChange =
-                            viewModel::setKeySound
-                    )
-                }
-            }
-
-            /*
-             * ==================================================
-             * CUSTOMIZATION
-             * ==================================================
-             */
-
-            item {
-
-                SectionHeader(
-                    title = "CUSTOMIZATION",
-                    subtitle = "Personalize your keyboard"
-                )
-            }
-
-            /*
-             * KEYBOARD COLORS
-             */
-
-            item {
-
-                SettingCard {
-
-                    Text(
-                        text = "Custom keyboard colors",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(4.dp)
-                    )
-
-                    Text(
-                        text =
-                            "These settings affect the keyboard appearance, not this app.",
-
-                        style = MaterialTheme.typography.bodySmall,
-
-                        color =
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(14.dp)
-                    )
-
-                    CustomColorEditor(
-                        existing = settings.customColors,
-                        onSave = viewModel::setCustomColors
-                    )
-                }
-            }
-
-            /*
-             * BACKGROUND IMAGE
-             */
-
-            item {
-
-                SettingCard {
-
-                    Text(
-                        text = "Background image",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(5.dp)
-                    )
-
-                    Text(
-                        text =
-                            "Choose an image to display behind your keyboard keys.",
-
-                        style = MaterialTheme.typography.bodySmall,
-
-                        color =
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(14.dp)
-                    )
-
-                    Row(
-                        horizontalArrangement =
-                            Arrangement.spacedBy(8.dp),
-
-                        verticalAlignment =
-                            Alignment.CenterVertically
-                    ) {
-
-                        Button(
-
-                            onClick = {
-
-                                pickImageLauncher.launch(
-                                    PickVisualMediaRequest(
-                                        ActivityResultContracts
-                                            .PickVisualMedia
-                                            .ImageOnly
-                                    )
-                                )
-                            },
-
-                            colors = ButtonDefaults.buttonColors(
+                        colors =
+                            CardDefaults.cardColors(
                                 containerColor =
-                                    MaterialTheme.colorScheme.primary,
-
-                                contentColor =
-                                    MaterialTheme.colorScheme.onPrimary
+                                    CipherBlue
                             )
+                    ) {
+
+                        Column(
+                            modifier =
+                                Modifier.padding(18.dp)
                         ) {
 
                             Text(
-                                if (
-                                    settings.backgroundImagePath != null
-                                ) {
-                                    "Change image"
-                                } else {
-                                    "Choose image"
-                                }
+                                text =
+                                    "CipherKeys Keyboard",
+                                style =
+                                    MaterialTheme.typography
+                                        .titleMedium,
+                                fontWeight =
+                                    FontWeight.Bold,
+                                color = CipherWhite
                             )
-                        }
 
-                        if (
-                            settings.backgroundImagePath != null
-                        ) {
+                            Spacer(
+                                modifier =
+                                    Modifier.height(4.dp)
+                            )
 
-                            TextButton(
+                            Text(
+                                text =
+                                    "Enable CipherKeys as an Android keyboard.",
+                                style =
+                                    MaterialTheme.typography
+                                        .bodySmall,
+                                color =
+                                    CipherWhite.copy(
+                                        alpha = 0.82f
+                                    )
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.height(14.dp)
+                            )
+
+                            Button(
+
+                                modifier =
+                                    Modifier.fillMaxWidth(),
+
                                 onClick = {
 
-                                    viewModel
-                                        .setUseImageBackground(false)
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_INPUT_METHOD_SETTINGS
+                                        )
+                                    )
+                                },
 
-                                    viewModel
-                                        .setBackgroundImagePath(null)
-                                }
+                                colors =
+                                    ButtonDefaults.buttonColors(
+                                        containerColor =
+                                            CipherWhite,
+                                        contentColor =
+                                            CipherBlueDark
+                                    ),
+
+                                shape =
+                                    androidx.compose.foundation
+                                        .shape.RoundedCornerShape(
+                                            12.dp
+                                        )
                             ) {
 
-                                Text("Remove")
+                                Text(
+                                    text =
+                                        "Enable CipherKeys",
+                                    fontWeight =
+                                        FontWeight.Bold
+                                )
                             }
                         }
                     }
+                }
 
-                    if (
-                        settings.backgroundImagePath != null
-                    ) {
+                /* ====================================================
+                   KEYBOARD
+                   ==================================================== */
 
-                        Spacer(
-                            modifier = Modifier.height(12.dp)
-                        )
+                item {
 
-                        SettingDivider()
+                    SectionHeader(
+                        title = "KEYBOARD",
+                        subtitle =
+                            "Control your typing experience"
+                    )
+                }
 
-                        Spacer(
-                            modifier = Modifier.height(12.dp)
-                        )
+                item {
 
-                        ToggleSetting(
+                    SettingCard {
 
-                            title =
-                                "Use as keyboard background",
-
+                        SettingTitle(
+                            title = "Default mode",
                             description =
-                                "Show the selected image behind the keys.",
-
-                            checked =
-                                settings.useImageBackground,
-
-                            onCheckedChange =
-                                viewModel::setUseImageBackground
+                                "Choose the mode CipherKeys starts with."
                         )
 
                         Spacer(
-                            modifier = Modifier.height(12.dp)
+                            modifier =
+                                Modifier.height(12.dp)
                         )
 
-                        Text(
-                            text = "Background darkness",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
+                        Row(
+
+                            modifier =
+                                Modifier.fillMaxWidth(),
+
+                            horizontalArrangement =
+                                Arrangement.spacedBy(6.dp)
+                        ) {
+
+                            KeyboardMode.entries
+                                .forEach { mode ->
+
+                                    FilterChip(
+
+                                        selected =
+                                            settings.defaultMode ==
+                                                mode,
+
+                                        onClick = {
+                                            viewModel
+                                                .setDefaultMode(
+                                                    mode
+                                                )
+                                        },
+
+                                        label = {
+                                            Text(
+                                                mode.label
+                                            )
+                                        },
+
+                                        colors =
+                                            FilterChipDefaults
+                                                .filterChipColors(
+
+                                                    selectedContainerColor =
+                                                        CipherBlue,
+
+                                                    selectedLabelColor =
+                                                        CipherWhite,
+
+                                                    containerColor =
+                                                        CipherBlack,
+
+                                                    labelColor =
+                                                        CipherText
+                                                )
+                                    )
+                                }
+                        }
+                    }
+                }
+
+                item {
+
+                    SettingCard {
+
+                        SettingTitle(
+                            title =
+                                "Keyboard height",
+                            description =
+                                "Adjust the size of the keyboard."
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(8.dp)
                         )
 
                         Slider(
 
                             value =
-                                settings.backgroundOverlayAlpha,
+                                settings.keyboardHeightScale,
 
                             onValueChange = {
                                 viewModel
-                                    .setBackgroundOverlayAlpha(it)
+                                    .setHeightScale(it)
                             },
 
-                            valueRange = 0f..0.9f
+                            valueRange =
+                                0.8f..1.3f
                         )
                     }
                 }
-            }
 
-            /*
-             * LEET MAPPINGS
-             */
+                item {
 
-            item {
+                    SettingCard {
 
-                SettingCard {
+                        SettingTitle(
+                            title =
+                                "Keyboard theme",
+                            description =
+                                "Choose the keyboard's appearance."
+                        )
 
-                    Text(
-                        text = "Custom leet mappings",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                        Spacer(
+                            modifier =
+                                Modifier.height(10.dp)
+                        )
 
-                    Spacer(
-                        modifier = Modifier.height(5.dp)
-                    )
+                        Row(
 
-                    Text(
-                        text =
-                            "Override the substitutions used for individual letters.",
+                            modifier =
+                                Modifier.fillMaxWidth(),
 
-                        style = MaterialTheme.typography.bodySmall,
+                            horizontalArrangement =
+                                Arrangement.spacedBy(6.dp)
+                        ) {
 
-                        color =
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                            KeyboardTheme.entries
+                                .forEach { theme ->
 
-                    Spacer(
-                        modifier = Modifier.height(14.dp)
-                    )
+                                    FilterChip(
 
-                    CustomMappingEditor(
-                        existing = settings.customMappings,
-                        onSave = viewModel::setCustomMapping
+                                        selected =
+                                            settings.theme ==
+                                                theme,
+
+                                        onClick = {
+                                            viewModel
+                                                .setTheme(
+                                                    theme
+                                                )
+                                        },
+
+                                        label = {
+                                            Text(
+                                                theme.label
+                                            )
+                                        },
+
+                                        colors =
+                                            FilterChipDefaults
+                                                .filterChipColors(
+
+                                                    selectedContainerColor =
+                                                        CipherBlue,
+
+                                                    selectedLabelColor =
+                                                        CipherWhite,
+
+                                                    containerColor =
+                                                        CipherBlack,
+
+                                                    labelColor =
+                                                        CipherText
+                                                )
+                                    )
+                                }
+                        }
+                    }
+                }
+
+                /* ====================================================
+                   AUTOMATION
+                   ==================================================== */
+
+                item {
+
+                    SectionHeader(
+                        title = "AUTOMATION",
+                        subtitle =
+                            "Let CipherKeys handle tasks automatically"
                     )
                 }
-            }
 
-            /*
-             * ==================================================
-             * FOOTER
-             * ==================================================
-             */
+                item {
 
-            item {
+                    SettingCard {
 
-                Column(
+                        ToggleSetting(
+                            title =
+                                "Auto encode",
+                            description =
+                                "Automatically transform text while typing.",
+                            checked =
+                                settings.autoEncodeEnabled,
+                            onCheckedChange =
+                                viewModel::setAutoEncode
+                        )
 
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            top = 18.dp,
-                            bottom = 10.dp
-                        ),
+                        SettingDivider()
 
-                    horizontalAlignment =
-                        Alignment.CenterHorizontally
-                ) {
+                        ToggleSetting(
+                            title =
+                                "Auto decode on focus",
+                            description =
+                                "Decode supported text when a field receives focus.",
+                            checked =
+                                settings.autoDecodeEnabled,
+                            onCheckedChange =
+                                viewModel::setAutoDecode
+                        )
 
-                    Text(
-                        text = "CipherKeys",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        SettingDivider()
+
+                        ToggleSetting(
+                            title =
+                                "Autocorrect",
+                            description =
+                                "Normal and Decode modes only.",
+                            checked =
+                                settings.autocorrectEnabled,
+                            onCheckedChange =
+                                viewModel::setAutocorrect
+                        )
+                    }
+                }
+
+                /* ====================================================
+                   EXPERIENCE
+                   ==================================================== */
+
+                item {
+
+                    SectionHeader(
+                        title = "EXPERIENCE",
+                        subtitle =
+                            "Control feedback while typing"
                     )
+                }
 
-                    Spacer(
-                        modifier = Modifier.height(3.dp)
-                    )
+                item {
 
-                    Text(
-                        text = "Your keyboard. Your rules.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    SettingCard {
+
+                        ToggleSetting(
+                            title =
+                                "Vibration",
+                            description =
+                                "Feel a small response when keys are pressed.",
+                            checked =
+                                settings.vibrationEnabled,
+                            onCheckedChange =
+                                viewModel::setVibration
+                        )
+
+                        SettingDivider()
+
+                        ToggleSetting(
+                            title =
+                                "Key sound",
+                            description =
+                                "Play a sound when typing.",
+                            checked =
+                                settings.keySoundEnabled,
+                            onCheckedChange =
+                                viewModel::setKeySound
+                        )
+                    }
+                }
+
+                /* ====================================================
+                   CUSTOMIZATION
+                   ==================================================== */
+
+                item {
+
+                    SectionHeader(
+                        title = "CUSTOMIZATION",
+                        subtitle =
+                            "Personalize your keyboard"
                     )
+                }
+
+                item {
+
+                    SettingCard {
+
+                        SettingTitle(
+                            title =
+                                "Custom keyboard colors",
+                            description =
+                                "These colors affect the keyboard, not this app."
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(14.dp)
+                        )
+
+                        CustomColorEditor(
+                            existing =
+                                settings.customColors,
+                            onSave =
+                                viewModel::setCustomColors
+                        )
+                    }
+                }
+
+                item {
+
+                    SettingCard {
+
+                        SettingTitle(
+                            title =
+                                "Background image",
+                            description =
+                                "Choose an image to display behind your keyboard keys."
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(14.dp)
+                        )
+
+                        Row(
+                            horizontalArrangement =
+                                Arrangement.spacedBy(8.dp)
+                        ) {
+
+                            Button(
+
+                                onClick = {
+
+                                    pickImageLauncher.launch(
+
+                                        PickVisualMediaRequest(
+                                            ActivityResultContracts
+                                                .PickVisualMedia
+                                                .ImageOnly
+                                        )
+                                    )
+                                },
+
+                                colors =
+                                    ButtonDefaults.buttonColors(
+                                        containerColor =
+                                            CipherBlue
+                                    ),
+
+                                shape =
+                                    androidx.compose.foundation
+                                        .shape.RoundedCornerShape(
+                                            12.dp
+                                        )
+                            ) {
+
+                                Text(
+                                    if (
+                                        settings.backgroundImagePath !=
+                                            null
+                                    ) {
+                                        "Change image"
+                                    } else {
+                                        "Choose image"
+                                    }
+                                )
+                            }
+
+                            if (
+                                settings.backgroundImagePath !=
+                                    null
+                            ) {
+
+                                TextButton(
+
+                                    onClick = {
+
+                                        viewModel
+                                            .setUseImageBackground(
+                                                false
+                                            )
+
+                                        viewModel
+                                            .setBackgroundImagePath(
+                                                null
+                                            )
+                                    }
+                                ) {
+
+                                    Text(
+                                        text = "Remove",
+                                        color =
+                                            CipherBlueLight
+                                    )
+                                }
+                            }
+                        }
+
+                        if (
+                            settings.backgroundImagePath !=
+                                null
+                        ) {
+
+                            Spacer(
+                                modifier =
+                                    Modifier.height(12.dp)
+                            )
+
+                            SettingDivider()
+
+                            ToggleSetting(
+                                title =
+                                    "Use as keyboard background",
+                                description =
+                                    "Show the selected image behind the keys.",
+                                checked =
+                                    settings.useImageBackground,
+                                onCheckedChange =
+                                    viewModel::setUseImageBackground
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.height(12.dp)
+                            )
+
+                            Text(
+                                text =
+                                    "Background darkness",
+                                style =
+                                    MaterialTheme.typography
+                                        .titleSmall,
+                                color =
+                                    CipherText
+                            )
+
+                            Slider(
+
+                                value =
+                                    settings.backgroundOverlayAlpha,
+
+                                onValueChange = {
+                                    viewModel
+                                        .setBackgroundOverlayAlpha(
+                                            it
+                                        )
+                                },
+
+                                valueRange =
+                                    0f..0.9f
+                            )
+                        }
+                    }
+                }
+
+                /* ====================================================
+                   LEET MAPPINGS
+                   ==================================================== */
+
+                item {
+
+                    SettingCard {
+
+                        SettingTitle(
+                            title =
+                                "Custom leet mappings",
+                            description =
+                                "Override substitutions used for individual letters."
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(14.dp)
+                        )
+
+                        CustomMappingEditor(
+                            existing =
+                                settings.customMappings,
+                            onSave =
+                                viewModel::setCustomMapping
+                        )
+                    }
+                }
+
+                /* ====================================================
+                   FOOTER
+                   ==================================================== */
+
+                item {
+
+                    Column(
+
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    top = 12.dp,
+                                    bottom = 10.dp
+                                ),
+
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally
+                    ) {
+
+                        Text(
+                            text =
+                                "CIPHERKEYS",
+                            fontWeight =
+                                FontWeight.Bold,
+                            color =
+                                CipherBlue
+                        )
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(3.dp)
+                        )
+
+                        Text(
+                            text =
+                                "Your keyboard. Your rules.",
+                            style =
+                                MaterialTheme.typography
+                                    .bodySmall,
+                            color =
+                                CipherMuted
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-
-/*
- * ============================================================
- * SECTION HEADER
- * ============================================================
- */
+/* ================================================================
+   SECTION HEADER
+   ================================================================ */
 
 @Composable
 private fun SectionHeader(
@@ -830,38 +949,38 @@ private fun SectionHeader(
 ) {
 
     Column(
-        modifier = Modifier.padding(
-            start = 4.dp,
-            top = 6.dp,
-            bottom = 2.dp
-        )
+
+        modifier =
+            Modifier.padding(
+                start = 4.dp,
+                top = 6.dp,
+                bottom = 2.dp
+            )
     ) {
 
         Text(
             text = title,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(
-            modifier = Modifier.height(2.dp)
+            style =
+                MaterialTheme.typography.labelLarge,
+            fontWeight =
+                FontWeight.Bold,
+            color =
+                CipherBlueLight
         )
 
         Text(
             text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style =
+                MaterialTheme.typography.bodySmall,
+            color =
+                CipherMuted
         )
     }
 }
 
-
-/*
- * ============================================================
- * GENERIC SETTING CARD
- * ============================================================
- */
+/* ================================================================
+   SETTING CARD
+   ================================================================ */
 
 @Composable
 private fun SettingCard(
@@ -870,36 +989,75 @@ private fun SettingCard(
 
     Card(
 
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth(),
 
-        colors = CardDefaults.cardColors(
-            containerColor =
-                MaterialTheme.colorScheme.surface
-        ),
+        shape =
+            androidx.compose.foundation
+                .shape.RoundedCornerShape(
+                    16.dp
+                ),
 
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    CipherCardDark
+            ),
 
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 1.dp
-        )
+        border =
+            BorderStroke(
+                1.dp,
+                CipherBorderDark
+            )
     ) {
 
         Column(
-            modifier = Modifier.padding(18.dp),
+
+            modifier =
+                Modifier.padding(16.dp),
+
             content = content
         )
     }
 }
 
+/* ================================================================
+   SETTING TITLE
+   ================================================================ */
 
-/*
- * ============================================================
- * TOGGLE SETTING
- * ============================================================
- */
+@Composable
+private fun SettingTitle(
+    title: String,
+    description: String
+) {
+
+    Text(
+        text = title,
+        style =
+            MaterialTheme.typography.titleMedium,
+        fontWeight =
+            FontWeight.SemiBold,
+        color =
+            CipherText
+    )
+
+    Spacer(
+        modifier =
+            Modifier.height(4.dp)
+    )
+
+    Text(
+        text = description,
+        style =
+            MaterialTheme.typography.bodySmall,
+        color =
+            CipherMuted
+    )
+}
+
+/* ================================================================
+   TOGGLE
+   ================================================================ */
 
 @Composable
 private fun ToggleSetting(
@@ -911,36 +1069,45 @@ private fun ToggleSetting(
 
     Row(
 
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+            Modifier.fillMaxWidth(),
 
         verticalAlignment =
             Alignment.CenterVertically
     ) {
 
         Column(
-            modifier = Modifier.weight(1f)
+            modifier =
+                Modifier.weight(1f)
         ) {
 
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
+                style =
+                    MaterialTheme.typography.bodyLarge,
+                fontWeight =
+                    FontWeight.Medium,
+                color =
+                    CipherText
             )
 
             Spacer(
-                modifier = Modifier.height(3.dp)
+                modifier =
+                    Modifier.height(3.dp)
             )
 
             Text(
                 text = description,
-                style = MaterialTheme.typography.bodySmall,
+                style =
+                    MaterialTheme.typography.bodySmall,
                 color =
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    CipherMuted
             )
         }
 
         Spacer(
-            modifier = Modifier.height(1.dp)
+            modifier =
+                Modifier.width(10.dp)
         )
 
         Switch(
@@ -950,61 +1117,61 @@ private fun ToggleSetting(
             onCheckedChange =
                 onCheckedChange,
 
-            colors = SwitchDefaults.colors(
+            colors =
+                SwitchDefaults.colors(
 
-                checkedThumbColor =
-                    MaterialTheme.colorScheme.onPrimary,
+                    checkedThumbColor =
+                        CipherWhite,
 
-                checkedTrackColor =
-                    MaterialTheme.colorScheme.primary,
+                    checkedTrackColor =
+                        CipherBlue,
 
-                uncheckedThumbColor =
-                    MaterialTheme.colorScheme.onSurfaceVariant,
+                    checkedBorderColor =
+                        CipherBlue,
 
-                uncheckedTrackColor =
-                    MaterialTheme.colorScheme.surfaceVariant
-            )
+                    uncheckedThumbColor =
+                        ComposeColor(0xFF98A2B3),
+
+                    uncheckedTrackColor =
+                        ComposeColor(0xFF29313D),
+
+                    uncheckedBorderColor =
+                        ComposeColor(0xFF475467)
+                )
         )
     }
 }
 
-
-/*
- * ============================================================
- * DIVIDER
- * ============================================================
- */
+/* ================================================================
+   DIVIDER
+   ================================================================ */
 
 @Composable
 private fun SettingDivider() {
 
-    Divider(
-        modifier = Modifier.padding(
-            vertical = 12.dp
-        ),
+    HorizontalDivider(
+
+        modifier =
+            Modifier.padding(
+                vertical = 11.dp
+            ),
 
         color =
-            MaterialTheme.colorScheme.outlineVariant
+            CipherBorderDark
     )
 }
 
+/* ================================================================
+   CUSTOM KEYBOARD COLORS
+   ================================================================ */
 
-/*
- * ============================================================
- * CUSTOM KEYBOARD COLORS
- *
- * IMPORTANT:
- * These colors affect the KEYBOARD,
- * not the CipherKeys app.
- * ============================================================
- */
-
-private fun colorToHex(color: Int): String =
+private fun colorToHex(
+    color: Int
+): String =
     String.format(
         "%06X",
         0xFFFFFF and color
     )
-
 
 @Composable
 private fun CustomColorEditor(
@@ -1014,25 +1181,33 @@ private fun CustomColorEditor(
 
     var bgHex by remember {
         mutableStateOf(
-            colorToHex(existing.background)
+            colorToHex(
+                existing.background
+            )
         )
     }
 
     var keyBgHex by remember {
         mutableStateOf(
-            colorToHex(existing.keyBackground)
+            colorToHex(
+                existing.keyBackground
+            )
         )
     }
 
     var keyTextHex by remember {
         mutableStateOf(
-            colorToHex(existing.keyText)
+            colorToHex(
+                existing.keyText
+            )
         )
     }
 
     var accentHex by remember {
         mutableStateOf(
-            colorToHex(existing.accent)
+            colorToHex(
+                existing.accent
+            )
         )
     }
 
@@ -1051,25 +1226,39 @@ private fun CustomColorEditor(
         ) {
 
             TextField(
+
                 value = bgHex,
+
                 onValueChange = {
                     bgHex = it
                 },
+
                 label = {
                     Text("Background")
                 },
-                modifier = Modifier.weight(1f)
+
+                modifier =
+                    Modifier.weight(1f),
+
+                singleLine = true
             )
 
             TextField(
+
                 value = keyBgHex,
+
                 onValueChange = {
                     keyBgHex = it
                 },
+
                 label = {
                     Text("Key bg")
                 },
-                modifier = Modifier.weight(1f)
+
+                modifier =
+                    Modifier.weight(1f),
+
+                singleLine = true
             )
         }
 
@@ -1079,57 +1268,75 @@ private fun CustomColorEditor(
         ) {
 
             TextField(
+
                 value = keyTextHex,
+
                 onValueChange = {
                     keyTextHex = it
                 },
+
                 label = {
                     Text("Key text")
                 },
-                modifier = Modifier.weight(1f)
+
+                modifier =
+                    Modifier.weight(1f),
+
+                singleLine = true
             )
 
             TextField(
+
                 value = accentHex,
+
                 onValueChange = {
                     accentHex = it
                 },
+
                 label = {
                     Text("Accent")
                 },
-                modifier = Modifier.weight(1f)
+
+                modifier =
+                    Modifier.weight(1f),
+
+                singleLine = true
             )
         }
 
         Button(
 
+            modifier =
+                Modifier.fillMaxWidth(),
+
             onClick = {
 
-                val parsed = runCatching {
+                val parsed =
+                    runCatching {
 
-                    ThemeColorSet(
+                        ThemeColorSet(
 
-                        background =
-                            Color.parseColor(
-                                "#$bgHex"
-                            ),
+                            background =
+                                Color.parseColor(
+                                    "#$bgHex"
+                                ),
 
-                        keyBackground =
-                            Color.parseColor(
-                                "#$keyBgHex"
-                            ),
+                            keyBackground =
+                                Color.parseColor(
+                                    "#$keyBgHex"
+                                ),
 
-                        keyText =
-                            Color.parseColor(
-                                "#$keyTextHex"
-                            ),
+                            keyText =
+                                Color.parseColor(
+                                    "#$keyTextHex"
+                                ),
 
-                        accent =
-                            Color.parseColor(
-                                "#$accentHex"
-                            )
-                    )
-                }
+                            accent =
+                                Color.parseColor(
+                                    "#$accentHex"
+                                )
+                        )
+                    }
 
                 if (parsed.isSuccess) {
 
@@ -1142,39 +1349,47 @@ private fun CustomColorEditor(
                 } else {
 
                     errorMessage =
-                        "Invalid hex code. Use 6 digits, e.g. 121212"
+                        "Invalid hex code. Use 6 digits, e.g. 1976D2."
                 }
             },
 
-            colors = ButtonDefaults.buttonColors(
-                containerColor =
-                    MaterialTheme.colorScheme.primary,
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor =
+                        CipherBlue
+                ),
 
-                contentColor =
-                    MaterialTheme.colorScheme.onPrimary
-            )
+            shape =
+                androidx.compose.foundation
+                    .shape.RoundedCornerShape(
+                        12.dp
+                    )
         ) {
 
-            Text("Save keyboard theme")
+            Text(
+                text =
+                    "Save keyboard theme",
+                fontWeight =
+                    FontWeight.SemiBold
+            )
         }
 
         errorMessage?.let { message ->
 
             Text(
                 text = message,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
+                color =
+                    ComposeColor(0xFFFF6B6B),
+                style =
+                    MaterialTheme.typography.bodySmall
             )
         }
     }
 }
 
-
-/*
- * ============================================================
- * CUSTOM LEET MAPPINGS
- * ============================================================
- */
+/* ================================================================
+   CUSTOM LEET MAPPINGS
+   ================================================================ */
 
 @Composable
 private fun CustomMappingEditor(
@@ -1202,7 +1417,8 @@ private fun CustomMappingEditor(
 
             TextField(
 
-                value = letterInput,
+                value =
+                    letterInput,
 
                 onValueChange = {
 
@@ -1215,12 +1431,16 @@ private fun CustomMappingEditor(
                     Text("Letter")
                 },
 
-                modifier = Modifier.weight(1f)
+                modifier =
+                    Modifier.weight(1f),
+
+                singleLine = true
             )
 
             TextField(
 
-                value = tokensInput,
+                value =
+                    tokensInput,
 
                 onValueChange = {
                     tokensInput = it
@@ -1230,7 +1450,10 @@ private fun CustomMappingEditor(
                     Text("Replacement(s)")
                 },
 
-                modifier = Modifier.weight(2f)
+                modifier =
+                    Modifier.weight(2f),
+
+                singleLine = true
             )
         }
 
@@ -1256,40 +1479,67 @@ private fun CustomMappingEditor(
                 }
             },
 
-            colors = ButtonDefaults.buttonColors(
-                containerColor =
-                    MaterialTheme.colorScheme.primary,
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor =
+                        CipherBlue
+                ),
 
-                contentColor =
-                    MaterialTheme.colorScheme.onPrimary
-            )
+            shape =
+                androidx.compose.foundation
+                    .shape.RoundedCornerShape(
+                        12.dp
+                    )
         ) {
 
-            Text("Save mapping")
+            Text(
+                text =
+                    "Save mapping"
+            )
         }
 
         if (existing.isNotEmpty()) {
 
-            Text(
-                text = "Current custom mappings",
-                style =
-                    MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold
+            Spacer(
+                modifier =
+                    Modifier.height(6.dp)
             )
 
-            existing.forEach { (letter, tokens) ->
+            Text(
+                text =
+                    "Current custom mappings",
+                style =
+                    MaterialTheme.typography
+                        .labelLarge,
+                fontWeight =
+                    FontWeight.Bold,
+                color =
+                    CipherText
+            )
 
-                Text(
-                    text =
-                        "$letter → ${tokens.joinToString(", ")}",
+            Spacer(
+                modifier =
+                    Modifier.height(4.dp)
+            )
 
-                    color =
-                        MaterialTheme.colorScheme.onSurfaceVariant,
+            existing
+                .toSortedMap()
+                .forEach { (letter, tokens) ->
 
-                    style =
-                        MaterialTheme.typography.bodySmall
-                )
-            }
+                    Text(
+                        text =
+                            "$letter → ${
+                                tokens.joinToString(", ")
+                            }",
+
+                        color =
+                            CipherMuted,
+
+                        style =
+                            MaterialTheme.typography
+                                .bodySmall
+                    )
+                }
         }
     }
 }
